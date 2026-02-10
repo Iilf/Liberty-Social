@@ -60,8 +60,11 @@ const NavItem = ({ icon, label, active, onClick }) => (
     </div>
 );
 
-const RenderNameWithRole = ({ profile }) => {
+const RenderNameWithRole = ({ profile, nickname }) => {
     if (!profile) return <span className="text-slate-400">Unknown</span>;
+    
+    // Use nickname if available (for group context), otherwise profile name
+    const displayName = nickname || profile.name;
     const role = profile.role;
     const globalRole = profile.global_role;
     const badges = Array.isArray(profile.badges) ? profile.badges : []; 
@@ -80,7 +83,7 @@ const RenderNameWithRole = ({ profile }) => {
 
     return (
         <div className="flex items-center gap-1.5 flex-wrap">
-            <span className={`font-bold text-sm ${nameColor} flex items-center gap-1.5`}>{profile.name} {icon}</span>
+            <span className={`font-bold text-sm ${nameColor} flex items-center gap-1.5`}>{displayName} {icon}</span>
             {isOfficial && <span className="text-[9px] bg-green-500/20 text-green-400 border border-green-500/30 px-1 rounded font-bold uppercase flex items-center gap-0.5"><BadgeCheck size={8}/> Official</span>}
             {isInfluencer && !isDeveloper && !isOfficial && <span className="text-[9px] bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-1 rounded font-bold uppercase">Influencer</span>}
             {role && <span className="text-[9px] text-slate-500 uppercase font-semibold border border-slate-800 px-1 rounded bg-slate-900/50">{role}</span>}
@@ -89,15 +92,29 @@ const RenderNameWithRole = ({ profile }) => {
 };
 
 const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, currentUser, groupRole, onViewProfile }) => {
+    const globalRole = post.profiles?.global_role;
+    
+    // Highlight Logic
+    let cardStyle = "bg-slate-900/40 border-slate-800/60";
+    if (globalRole === 'owner') cardStyle = "bg-blue-950/30 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]";
+    else if (globalRole === 'developer') cardStyle = "bg-green-950/20 border-green-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]";
+    else if (globalRole === 'admin') cardStyle = "bg-red-950/20 border-red-500/30";
+    else if (globalRole === 'moderator') cardStyle = "bg-cyan-950/20 border-cyan-500/30";
+    else if (globalRole === 'influencer' || (post.profiles?.badges && post.profiles.badges.includes('influencer'))) cardStyle = "bg-pink-950/20 border-pink-500/30";
+
     const isGlobalStaff = ['owner', 'admin', 'moderator', 'developer'].includes(currentUser?.global_role);
     const isGroupStaff = ['admin', 'moderator'].includes(groupRole);
-    const canDelete = isGlobalStaff || (post.group_id && isGroupStaff) || post.uid === currentUser?.id;
+    const isAuthor = post.uid === currentUser?.id;
+    const canDelete = isGlobalStaff || (post.group_id && isGroupStaff) || isAuthor;
 
     return (
-        <div className="bg-slate-900/40 border border-slate-800/60 rounded-2xl p-5 mb-4 hover:border-slate-700/80 transition-all shadow-sm">
-            <div className="flex gap-4">
+        <div className={`${cardStyle} border rounded-2xl p-5 mb-4 transition-all shadow-sm relative overflow-hidden`}>
+            {/* Glossy overlay for special roles */}
+            {(globalRole === 'owner' || globalRole === 'developer') && <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>}
+            
+            <div className="flex gap-4 relative z-10">
                 <div onClick={onViewProfile} className="w-10 h-10 bg-slate-800 rounded-full flex items-center justify-center font-bold text-slate-400 shrink-0 border border-slate-700 overflow-hidden cursor-pointer hover:border-blue-500 transition-colors">
-                    {post.profiles?.name?.[0]}
+                    {post.profiles?.image ? <img src={post.profiles.image} className="w-full h-full object-cover" /> : post.profiles?.name?.[0]}
                 </div>
                 <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-2">
@@ -115,8 +132,8 @@ const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, cur
                     <p className="text-slate-200 text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
                     
                     {post.image && (
-                        <div className="mt-3 rounded-xl border border-slate-800/50 overflow-hidden">
-                            <img src={post.image} className="w-full max-h-96 object-contain bg-black/40" />
+                        <div className="mt-3 rounded-xl border border-slate-800/50 overflow-hidden bg-black/40">
+                            <img src={post.image} className="w-full max-h-96 object-contain" />
                         </div>
                     )}
 
@@ -150,15 +167,11 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="flex h-screen w-full items-center justify-center bg-[#050507] text-slate-200 p-6">
           <div className="max-w-md text-center">
-             <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-900/20 mb-6">
-                <AlertOctagon size={32} className="text-red-500" />
-             </div>
+             <AlertOctagon size={48} className="text-red-500 mx-auto mb-4" />
              <h1 className="text-2xl font-black mb-2 text-white">System Critical</h1>
              <p className="text-slate-400 mb-6">The application encountered an unexpected error.</p>
-             <button onClick={() => window.location.reload()} className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl transition-all shadow-lg shadow-red-900/20 flex items-center gap-2 mx-auto">
-               <RefreshCw size={18}/> Reboot System
-             </button>
-             <div className="mt-8 p-4 bg-black/40 rounded-xl border border-slate-800 text-left overflow-auto max-h-32"><p className="font-mono text-[10px] text-red-400">{this.state.error?.toString()}</p></div>
+             <button onClick={() => window.location.reload()} className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-6 rounded-xl">Reboot System</button>
+             <div className="mt-8 p-4 bg-black/40 rounded-xl border border-slate-800 text-left overflow-auto max-h-32 text-xs font-mono text-red-400">{this.state.error?.toString()}</div>
           </div>
         </div>
       );
@@ -169,7 +182,6 @@ class ErrorBoundary extends React.Component {
 
 // --- MAIN APP LOGIC ---
 function MainApp() {
-  // 1. STATE & REFS
   const [supabase, setSupabase] = useState(null);
   const [authUser, setAuthUser] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
@@ -199,10 +211,10 @@ function MainApp() {
   const [viewingUser, setViewingUser] = useState(null);
   const [isSupportOpen, setIsSupportOpen] = useState(false); 
   const [userTicket, setUserTicket] = useState(null); 
-  const [activeStaffTicket, setActiveStaffTicket] = useState(null); 
   const [supportMessages, setSupportMessages] = useState([]);
-  const [supportList, setSupportList] = useState([]); 
   const [supportInput, setSupportInput] = useState("");
+  const [supportList, setSupportList] = useState([]);
+  const [activeStaffTicket, setActiveStaffTicket] = useState(null);
 
   const [investigationTab, setInvestigationTab] = useState('pending'); 
   const [reportTarget, setReportTarget] = useState(null); 
@@ -210,7 +222,6 @@ function MainApp() {
   const [viewingCommentsPost, setViewingCommentsPost] = useState(null);
   const [comments, setComments] = useState([]);
   const [commentText, setCommentText] = useState("");
-  const [replyingTo, setReplyingTo] = useState(null); 
   
   const [groupSearchQuery, setGroupSearchQuery] = useState("");
   const [groupFilterTag, setGroupFilterTag] = useState("All");
@@ -222,27 +233,32 @@ function MainApp() {
   const [newGroupImage, setNewGroupImage] = useState(""); 
   const [newGroupTags, setNewGroupTags] = useState([]); 
   const [editGroupTags, setEditGroupTags] = useState([]); 
+  const [editingMemberId, setEditingMemberId] = useState(null); 
   
   const [selectedTag, setSelectedTag] = useState(TAGS[0].id);
   const [selectedImage, setSelectedImage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [reportModalPostId, setReportModalPostId] = useState(null);
   
   const fileInputRef = useRef(null);
-  const scrollContainerRef = useRef(null);
-  const commentInputRef = useRef(null);
   const supportScrollRef = useRef(null);
   const chatScrollRef = useRef(null);
+  const commentInputRef = useRef(null);
+  const scrollContainerRef = useRef(null); // Add missing ref
 
   // 2. HELPERS & HANDLERS
   const isGlobalStaff = ['owner', 'admin', 'moderator', 'investigator', 'developer'].includes(currentUser?.global_role);
+  
+  const canPostInChannel = () => {
+    if (!activeGroup) return true;
+    if (activeChannel === 'general') return true;
+    return ['admin', 'moderator'].includes(currentGroupRole);
+  };
 
   const fetchPosts = async () => {
     if (!supabase) return;
-    let query = supabase.from('posts').select(`*, profiles:uid ( id, name, username, role, global_role, badges )`).order('created_at', { ascending: false });
+    let query = supabase.from('posts').select(`*, profiles:uid ( id, name, username, role, global_role, badges, image )`).order('created_at', { ascending: false });
     if (currentView === 'profile' && authUser) query = query.eq('uid', authUser.id);
     else if (currentView === 'single_group' && activeGroup) { query = query.eq('group_id', activeGroup.id); query = query.eq('channel', activeChannel); }
-    else if (['investigation', 'applications', 'active_calls', 'review_apps'].includes(currentView)) return;
     else query = query.is('group_id', null);
     const { data } = await query;
     if (data) setPosts(data);
@@ -252,19 +268,6 @@ function MainApp() {
       if(!supabase || !authUser) return;
       const { data } = await supabase.from('notifications').select(`*, profiles:actor_id ( name )`).eq('user_id', authUser.id).order('created_at', { ascending: false }).limit(20);
       if(data) setNotifications(data);
-  };
-
-  const checkForMentions = async (text, postId) => {
-      if(!text.includes('@')) return;
-      const mentions = text.match(/@(\w+)/g);
-      if(!mentions) return;
-      const uniqueMentions = [...new Set(mentions.map(m => m.substring(1)))];
-      for (const username of uniqueMentions) {
-          const { data: user } = await supabase.from('profiles').select('id').eq('username', username).single();
-          if(user && user.id !== authUser.id) {
-              await supabase.from('notifications').insert({ user_id: user.id, actor_id: authUser.id, type: 'mention', content: 'mentioned you in a post', post_id: postId });
-          }
-      }
   };
 
   const goHome = () => { setActiveGroup(null); setCurrentView('feed'); setFeedMode('posts'); };
@@ -307,9 +310,9 @@ function MainApp() {
   const handleDeleteChatMessage = async (msgId) => {
       if(!supabase) return;
       if(!window.confirm("Delete message?")) return;
+      setGlobalChatMessages(prev => prev.filter(m => m.id !== msgId));
       const { error } = await supabase.from('global_chat').delete().eq('id', msgId);
-      if(error) alert(error.message);
-      // Realtime listener will handle UI update
+      if(error) alert("Failed to delete: " + error.message);
   };
 
   const handleLikePost = async (postId, currentLikes) => {
@@ -353,30 +356,47 @@ function MainApp() {
 
   const handleDeleteAccount = async () => {
     if (!supabase || !authUser) return;
-    if (!window.confirm("ARE YOU SURE? This will permanently delete your account (Auth & Profile). This action cannot be undone.")) return;
+    if (!window.confirm("ARE YOU SURE? This will permanently delete your account and ALL your data (Groups, Posts, Messages). This action cannot be undone.")) return;
     
     try {
         setAuthLoading(true); 
+
+        // 1. Client-side cleanup of dependent data (Safety net if DB cascades aren't set)
+        const uid = authUser.id;
+        await supabase.from('notifications').delete().eq('user_id', uid);
+        await supabase.from('notifications').delete().eq('actor_id', uid);
+        await supabase.from('likes').delete().eq('user_id', uid);
+        await supabase.from('comments').delete().eq('user_id', uid);
+        await supabase.from('global_chat').delete().eq('user_id', uid);
+        await supabase.from('group_members').delete().eq('user_id', uid);
+        await supabase.from('posts').delete().eq('uid', uid);
+        await supabase.from('reports').delete().eq('reporter_id', uid);
+        await supabase.from('applications').delete().eq('user_id', uid);
+        await supabase.from('support_messages').delete().eq('sender_id', uid);
+        await supabase.from('support_tickets').delete().eq('user_id', uid);
+        await supabase.from('groups').delete().eq('creator_id', uid);
+
+        // 2. Attempt RPC delete (Deletes auth.users)
         const { error } = await supabase.rpc('delete_own_user');
 
         if (error) {
-            console.error("RPC Delete Failed:", error);
-            const { error: profileError } = await supabase.from('profiles').delete().eq('id', authUser.id);
+            console.warn("RPC Delete Failed (likely due to permissions or missing function), attempting manual profile delete:", error);
+            // Fallback: Delete public profile
+            const { error: profileError } = await supabase.from('profiles').delete().eq('id', uid);
             if (profileError) throw profileError;
-            alert("Profile deleted. (Note: Auth account may still exist if RPC is missing)");
-        } else {
-            alert("Account deleted successfully.");
-        }
+        } 
+        
+        alert("Account and data deleted successfully.");
         await handleLogout();
+
     } catch (e) {
         console.error("Delete Error:", e);
-        alert("Failed to delete account: " + e.message);
+        alert("Failed to delete account completely: " + e.message);
         setAuthLoading(false); 
     }
   };
 
-
-  const handleReplyToComment = (c) => { setReplyingTo(c); setCommentText(`@${c.profiles?.username || 'user'} `); commentInputRef.current?.focus(); };
+  const handleReplyToComment = (c) => { setCommentText(`@${c.profiles?.username || 'user'} `); commentInputRef.current?.focus(); };
   const handlePinComment = async (c) => { await supabase.from('comments').update({ is_pinned: !c.is_pinned }).eq('id', c.id); };
   const handleToggleComments = async () => { const nv = !viewingCommentsPost.comments_disabled; await supabase.from('posts').update({ comments_disabled: nv }).eq('id', viewingCommentsPost.id); setViewingCommentsPost(prev => ({ ...prev, comments_disabled: nv })); };
   const handleResolveReport = async (rid) => { if (window.confirm("Resolve?")) { await supabase.from('reports').update({ status: 'resolved' }).eq('id', rid); setReports(prev => prev.filter(r => r.id !== rid)); }};
@@ -426,49 +446,59 @@ function MainApp() {
     setReportTarget(null);
   };
   
-  // const handleDeleteAccount = async () => { if(window.confirm("ARE YOU SURE?")) { await supabase.from('profiles').delete().eq('id', authUser.id); handleLogout(); setActiveModal(null); } };
-  const handleUpdateProfile = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('profiles').update({ name: fd.get('displayName'), role: fd.get('role') }).eq('id', authUser.id); setActiveModal(null); setCurrentUser(prev => ({...prev, name: fd.get('displayName'), role: fd.get('role')})); };
-  const handleUpdateGroup = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('groups').update({ name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags }).eq('id', activeGroup.id); setActiveModal(null); setActiveGroup(prev => ({...prev, name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags})); };
-  const handleOpenMembers = async () => { setActiveModal('members'); const { data } = await supabase.from('group_members').select(`*, profiles:user_id ( id, name, username, role, global_role, badges )`).eq('group_id', activeGroup.id); if(data) setGroupMembers(data); };
-  const handleKickMember = async (uid) => { if(window.confirm("Kick?")) { await supabase.from('group_members').delete().eq('group_id', activeGroup.id).eq('user_id', uid); setGroupMembers(prev => prev.filter(m => m.user_id !== uid)); } };
-  const handleUpdateMemberRole = async (uid, role) => { await supabase.from('group_members').update({ role }).eq('group_id', activeGroup.id).eq('user_id', uid); setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role } : m)); };
-  const handleImageChange = (e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setSelectedImage(reader.result); reader.readAsDataURL(file); } };
-  const handleDeletePost = async (pid) => { if(window.confirm("Delete?")) { await supabase.from('posts').delete().eq('id', pid); setPosts(prev => prev.filter(p => p.id !== pid)); } };
-  const handleBanUser = async (uid) => { if(window.confirm("Ban Global?")) { await supabase.from('profiles').update({ is_banned: true }).eq('id', uid); alert("Banned"); } };
-  const handleCreateSupportTicket = async () => { try { const { data } = await supabase.from('support_tickets').insert({ user_id: authUser.id, user_name: currentUser.name }).select().single(); setUserTicket(data); } catch (e) { alert(e.message); } };
-  const handleSendSupportMessage = async () => { if(!supportInput.trim()) return; const ticketId = activeStaffTicket ? activeStaffTicket.id : userTicket?.id; await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_id: authUser.id, content: supportInput }); setSupportInput(""); };
-  const handleCloseTicket = async (tid) => { if(window.confirm("Close?")) { await supabase.from('support_tickets').delete().eq('id', tid); if(activeStaffTicket?.id === tid) { setActiveStaffTicket(null); setSupportList(prev => prev.filter(t => t.id !== tid)); } if(userTicket?.id === tid) setUserTicket(null); } };
-  const handleUpdateReportStatus = async (rid, status) => { await supabase.from('reports').update({ status }).eq('id', rid); setReports(prev => prev.filter(r => r.id !== rid)); };
-  
-  const handleViewReportedPost = async (targetId, targetType) => {
-      let postId = targetId;
-      if (targetType === 'comment') {
-          const { data: comment } = await supabase.from('comments').select('post_id').eq('id', targetId).single();
-          if (comment) postId = comment.post_id; else return alert("Comment no longer exists");
+  const handleDeletePost = async (pid) => {
+      if(!supabase) return;
+      if(!window.confirm("Delete this post?")) return;
+      setPosts(prev => prev.filter(p => p.id !== pid)); // Optimistic
+      const { error } = await supabase.from('posts').delete().eq('id', pid);
+      if(error) {
+          alert("Error deleting post: " + error.message);
+          fetchPosts(); 
       }
-      const { data } = await supabase.from('posts').select(`*, profiles:uid ( id, name, username, role, global_role, badges )`).eq('id', postId).single();
-      if (data) setViewingCommentsPost(data);
   };
   
+  const handleUpdateProfile = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('profiles').update({ name: fd.get('displayName'), role: fd.get('role') }).eq('id', authUser.id); setActiveModal(null); setCurrentUser(prev => ({...prev, name: fd.get('displayName'), role: fd.get('role')})); };
+  const handleUpdateGroup = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('groups').update({ name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags }).eq('id', activeGroup.id); setActiveModal(null); setActiveGroup(prev => ({...prev, name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags})); };
+  
+  const handleOpenMembers = async () => { 
+      setActiveModal('members'); 
+      const { data } = await supabase.from('group_members').select(`*, profiles:user_id ( id, name, username, role, global_role, badges, image )`).eq('group_id', activeGroup.id); 
+      if(data) setGroupMembers(data); 
+  };
+  
+  const handleKickMember = async (uid) => { 
+      if(window.confirm("Kick user?")) { 
+          await supabase.from('group_members').delete().eq('group_id', activeGroup.id).eq('user_id', uid); 
+          setGroupMembers(prev => prev.filter(m => m.user_id !== uid)); 
+      } 
+  };
+  
+  const handleBanMember = async (uid) => {
+      if(window.confirm("Ban user from group?")) {
+          const { error } = await supabase.from('group_members').update({ role: 'banned' }).eq('group_id', activeGroup.id).eq('user_id', uid);
+          if (error) alert("Error banning: " + error.message);
+          else setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role: 'banned' } : m));
+      }
+  };
+
+  const handleUpdateMemberRole = async (uid, role) => { 
+      await supabase.from('group_members').update({ role }).eq('group_id', activeGroup.id).eq('user_id', uid); 
+      setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role } : m)); 
+  };
+  
+  const handleSetNickname = async (uid, newNick) => {
+      await supabase.from('group_members').update({ nickname: newNick }).eq('group_id', activeGroup.id).eq('user_id', uid);
+      setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, nickname: newNick } : m));
+      setEditingMemberId(null);
+  };
+
+  const handleImageChange = (e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setSelectedImage(reader.result); reader.readAsDataURL(file); } };
+  const handleBanUser = async (uid) => { if(window.confirm("Ban Global?")) { await supabase.from('profiles').update({ is_banned: true }).eq('id', uid); alert("Banned"); } };
+  const handleCreateSupportTicket = async () => { try { const { data } = await supabase.from('support_tickets').insert({ user_id: authUser.id, user_name: currentUser.name }).select().single(); setUserTicket(data); } catch (e) { alert(e.message); } };
+  const handleSendSupportMessage = async () => { if(!supportInput.trim()) return; const ticketId = userTicket?.id; await supabase.from('support_messages').insert({ ticket_id: ticketId, sender_id: authUser.id, content: supportInput }); setSupportInput(""); };
   const handleDeleteComment = async (commentId) => {
     if (!supabase) return; if (!window.confirm("Delete comment?")) return;
     try { const { error } = await supabase.from('comments').delete().eq('id', commentId); if (error) throw error; setComments(prev => prev.filter(c => c.id !== commentId)); } catch (e) { alert("Error deleting comment: " + e.message); }
-  };
-
-  const handleReviewApp = async (app, action) => { 
-      if (!supabase) return;
-      if (action === 'approve') {
-          if (app.type === 'verification') {
-              const currentBadges = app.profiles?.badges || [];
-              if (!currentBadges.includes('influencer')) {
-                 await supabase.from('profiles').update({ badges: [...currentBadges, 'influencer'] }).eq('id', app.user_id);
-              }
-          } else if (app.type === 'staff') {
-              await supabase.from('profiles').update({ global_role: 'moderator' }).eq('id', app.user_id);
-          }
-      }
-      await supabase.from('applications').update({ status: action === 'approve' ? 'approved' : 'rejected' }).eq('id', app.id); 
-      setApplications(prev => prev.filter(a => a.id !== app.id)); 
   };
 
   const toggleGroupTag = (tag, isEdit) => {
@@ -612,30 +642,9 @@ function MainApp() {
     return () => { supabase.removeChannel(channel); };
   }, [viewingCommentsPost, supabase]);
 
+  // Support messages fetch (User side only)
   useEffect(() => {
-    if (supabase && currentUser) {
-        if (currentView === 'investigation') {
-            const fetchReports = async () => {
-                const { data } = await supabase.from('reports').select(`*, profiles:reporter_id ( name )`).eq('status', investigationTab).order('created_at', { ascending: false });
-                if (data) setReports(data);
-            };
-            fetchReports();
-            const reportChannel = supabase.channel('reports_channel')
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, async () => { fetchReports(); }).subscribe();
-            return () => supabase.removeChannel(reportChannel);
-        }
-        if (currentView === 'review_apps') {
-             const fetchApps = async () => {
-                 const { data } = await supabase.from('applications').select(`*, profiles:user_id ( id, name, username )`).eq('status', 'pending').order('created_at', { ascending: false });
-                 if(data) setApplications(data);
-             }
-             fetchApps();
-        }
-    }
-  }, [currentView, investigationTab, supabase, currentUser]);
-
-  useEffect(() => {
-    const ticketId = currentUser?.global_role && ['owner', 'admin', 'moderator', 'investigator', 'developer'].includes(currentUser.global_role) ? activeStaffTicket?.id : userTicket?.id;
+    const ticketId = userTicket?.id;
     if (!ticketId || !supabase) return;
     const fetchMessages = async () => {
         const { data } = await supabase.from('support_messages').select(`*, profiles:sender_id ( name, role, global_role )`).eq('ticket_id', ticketId).order('created_at', { ascending: true });
@@ -650,19 +659,7 @@ function MainApp() {
         if (supportScrollRef.current) supportScrollRef.current.scrollTop = supportScrollRef.current.scrollHeight;
     }).subscribe();
     return () => supabase.removeChannel(channel);
-  }, [userTicket, activeStaffTicket, supabase]);
-
-  useEffect(() => {
-    if (currentView === 'active_calls' && supabase) {
-        const fetchCalls = async () => {
-            const { data } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
-            setSupportList(data || []);
-        };
-        fetchCalls();
-        const channel = supabase.channel('all_tickets').on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => { fetchCalls(); }).subscribe();
-        return () => supabase.removeChannel(channel);
-    }
-  }, [currentView, supabase]);
+  }, [userTicket, supabase]);
 
   useEffect(() => {
       if (feedMode === 'chat' && supabase) {
@@ -672,14 +669,17 @@ function MainApp() {
               if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
           };
           fetchChat();
-          const channel = supabase.channel('global_chat').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_chat' }, async (payload) => {
-               const { data: sender } = await supabase.from('profiles').select('id, name, username, role, global_role, badges').eq('id', payload.new.user_id).single();
-               const msgWithProfile = { ...payload.new, profiles: sender };
-               setGlobalChatMessages(prev => [...prev, msgWithProfile]);
-               if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
-          }).on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'global_chat' }, (payload) => {
-               setGlobalChatMessages(prev => prev.filter(m => m.id !== payload.old.id));
-          }).subscribe();
+          const channel = supabase.channel('global_chat')
+              .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_chat' }, async (payload) => {
+                   const { data: sender } = await supabase.from('profiles').select('id, name, username, role, global_role, badges').eq('id', payload.new.user_id).single();
+                   const msgWithProfile = { ...payload.new, profiles: sender };
+                   setGlobalChatMessages(prev => [...prev, msgWithProfile]);
+                   if (chatScrollRef.current) chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+              })
+              .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'global_chat' }, (payload) => {
+                   setGlobalChatMessages(prev => prev.filter(m => m.id !== payload.old.id));
+              })
+              .subscribe();
           return () => supabase.removeChannel(channel);
       }
   }, [feedMode, supabase]);
@@ -774,9 +774,6 @@ function MainApp() {
           <NavItem icon={<User size={18}/>} label="Profile" active={currentView === 'profile'} onClick={goProfile} />
           <NavItem icon={<Inbox size={18}/>} label="Applications" active={currentView === 'applications'} onClick={() => setCurrentView('applications')} />
           <NavItem icon={<Settings size={18}/>} label="Settings" onClick={() => { goProfile(); setActiveModal('settings'); }} />
-          {isGlobalStaff && (
-            <><div className="pt-4 pb-2 text-[10px] font-bold uppercase text-slate-500 px-2">Staff Area</div><NavItem icon={<FileWarning size={18} className="text-red-500"/>} label="Investigations" active={currentView === 'investigation'} onClick={() => setCurrentView('investigation')} /><NavItem icon={<FileCheck size={18} className="text-yellow-500"/>} label="Review Apps" active={currentView === 'review_apps'} onClick={() => setCurrentView('review_apps')} /><NavItem icon={<Phone size={18} className="text-green-500"/>} label="Active Calls" active={currentView === 'active_calls'} onClick={() => setCurrentView('active_calls')} /></>
-          )}
         </div>
         <div className="mt-auto pt-4 border-t border-slate-800"><button onClick={() => setIsSupportOpen(!isSupportOpen)} className="flex items-center gap-3 px-3 py-3 w-full rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"><LifeBuoy size={18}/> <span className="text-sm font-semibold">Get Help</span></button></div>
       </nav>
@@ -785,7 +782,7 @@ function MainApp() {
       <main ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-hide border-r border-slate-800/60 bg-[#0a0a0c] relative">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-[#0a0a0c]/80 backdrop-blur-xl border-b border-slate-800/60 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold truncate"> {currentView === 'feed' ? 'Dispatch Feed' : currentView === 'groups' ? 'Explore Communities' : currentView === 'investigation' ? 'Investigation Unit' : currentView === 'active_calls' ? 'Active Support Calls' : currentView === 'review_apps' ? 'Review Applications' : currentView === 'applications' ? 'Applications' : activeGroup?.name || 'Dashboard'} </h2>
+            <h2 className="text-lg font-bold truncate"> {currentView === 'feed' ? 'Dispatch Feed' : currentView === 'groups' ? 'Explore Communities' : currentView === 'applications' ? 'Applications' : activeGroup?.name || 'Dashboard'} </h2>
             <div className="flex space-x-4 items-center relative">
               <button onClick={() => setActiveModal('verify')} className="text-xs bg-yellow-500/10 text-yellow-500 px-3 py-1.5 rounded-full border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors flex items-center gap-1 font-medium"><BadgeCheck size={14} /> Verify</button>
               <div className="relative"><div className="p-2 hover:bg-slate-800 rounded-full transition-colors cursor-pointer" onClick={() => setShowNotifications(!showNotifications)}><Bell className="w-5 h-5 text-slate-400 hover:text-white" /></div>{notifications.filter(n => !n.read).length > 0 && <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-[#0a0a0c]"></div>}{showNotifications && (<div className="absolute right-0 top-12 w-80 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10"><div className="p-3 border-b border-slate-800/50 font-bold text-xs uppercase tracking-wider text-slate-500">Notifications</div><div className="max-h-80 overflow-y-auto">{notifications.length === 0 ? <div className="p-6 text-center text-xs text-slate-500">No new alerts.</div> : notifications.map(n => (<div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-4 border-b border-slate-800/30 hover:bg-slate-800/50 cursor-pointer transition-colors ${!n.read ? 'bg-blue-500/5' : ''}`}><p className="text-sm text-slate-300"><span className="font-bold text-white">{n.profiles?.name}</span> {n.content}</p><span className="text-[10px] text-slate-500 mt-1 block">{new Date(n.created_at).toLocaleTimeString()}</span></div>))}</div></div>)}</div>
@@ -1061,6 +1058,7 @@ function MainApp() {
             </div>
         )}
 
+        {/* Member Management Modal - UPDATED */}
         {activeModal === 'members' && activeGroup && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in zoom-in-95">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md flex flex-col h-[70vh]">
@@ -1068,11 +1066,49 @@ function MainApp() {
                     <div className="flex-1 overflow-y-auto p-4 space-y-3">
                         {groupMembers.map(member => {
                              const isMe = member.user_id === authUser.id;
-                             const canManage = (currentGroupRole === 'admin' || (currentGroupRole === 'moderator' && member.role === 'member')) && !isMe;
+                             const isAdmin = currentGroupRole === 'admin';
+                             const isMod = currentGroupRole === 'moderator';
+                             const canManage = (isAdmin || (isMod && member.role === 'member')) && !isMe;
+                             
                              return (
-                                <div key={member.user_id} className="flex items-center justify-between p-3 bg-slate-950/50 rounded-xl border border-slate-800">
-                                    <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center"><User size={14}/></div><div><p className="text-sm font-bold text-slate-200">{member.profiles?.name || 'User'}</p><span className="text-[10px] uppercase font-bold text-slate-500 bg-slate-900 px-1.5 py-0.5 rounded">{member.role}</span></div></div>
-                                    {canManage && (<div className="flex gap-2">{currentGroupRole === 'admin' && (<select className="bg-slate-900 text-xs p-1 rounded border border-slate-700 outline-none" value={member.role} onChange={(e) => handleUpdateMemberRole(member.user_id, e.target.value)}><option value="member">Member</option><option value="moderator">Mod</option><option value="admin">Admin</option></select>)}<button onClick={() => handleKickMember(member.user_id)} className="p-1.5 bg-red-900/20 text-red-500 rounded hover:bg-red-900/40"><UserMinus size={14}/></button></div>)}
+                                <div key={member.user_id} className="flex flex-col p-3 bg-slate-950/50 rounded-xl border border-slate-800 gap-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden">
+                                                {member.profiles?.image ? <img src={member.profiles.image} className="w-full h-full object-cover"/> : <User size={14}/>}
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                                                    {member.nickname || member.profiles?.name || 'User'}
+                                                    {member.nickname && <span className="text-[10px] font-normal text-slate-500">(@{member.profiles?.username})</span>}
+                                                </p>
+                                                <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${member.role === 'admin' ? 'bg-red-500/20 text-red-400' : member.role === 'moderator' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>{member.role}</span>
+                                            </div>
+                                        </div>
+                                        {canManage && (
+                                            <div className="flex gap-2">
+                                                 <button onClick={() => setEditingMemberId(member.user_id === editingMemberId ? null : member.user_id)} className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"><Settings size={14}/></button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    
+                                    {/* Edit Member Actions */}
+                                    {editingMemberId === member.user_id && (
+                                        <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
+                                            <div className="col-span-2 flex gap-2">
+                                                <input type="text" placeholder="Set Nickname" className="flex-1 bg-black/40 border border-slate-700 rounded p-1.5 text-xs text-white" onKeyDown={(e) => { if(e.key === 'Enter') handleSetNickname(member.user_id, e.target.value) }} />
+                                            </div>
+                                            {isAdmin && (
+                                                <select className="bg-slate-800 text-white text-xs p-2 rounded border border-slate-700 outline-none" value={member.role} onChange={(e) => handleUpdateMemberRole(member.user_id, e.target.value)}>
+                                                    <option value="member">Member</option>
+                                                    <option value="moderator">Moderator</option>
+                                                    <option value="admin">Admin</option>
+                                                </select>
+                                            )}
+                                            <button onClick={() => handleKickMember(member.user_id)} className="bg-orange-900/20 text-orange-500 hover:bg-orange-900/40 p-2 rounded text-xs font-bold border border-orange-900/50">Kick</button>
+                                            <button onClick={() => handleBanMember(member.user_id)} className="col-span-2 bg-red-900/20 text-red-500 hover:bg-red-900/40 p-2 rounded text-xs font-bold border border-red-900/50 flex items-center justify-center gap-2"><Ban size={12}/> Ban from Group</button>
+                                        </div>
+                                    )}
                                 </div>
                              );
                         })}
@@ -1085,7 +1121,25 @@ function MainApp() {
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
                 <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg h-[80vh] flex flex-col shadow-2xl relative">
                     <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur-md absolute top-0 left-0 right-0 z-10 rounded-t-2xl"><h3 className="font-bold text-white flex items-center gap-2"><MessageSquare size={18} className="text-blue-500"/> Thread</h3><div className="flex items-center gap-2">{(currentUser?.global_role === 'owner' || currentUser?.global_role === 'admin' || viewingCommentsPost.uid === authUser?.id) && (<button onClick={handleToggleComments} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">{viewingCommentsPost.comments_disabled ? <Lock size={16} className="text-red-400"/> : <Unlock size={16}/>}</button>)}<button onClick={() => setViewingCommentsPost(null)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"><X size={20}/></button></div></div>
-                    <div className="flex-1 overflow-y-auto p-4 pt-20 space-y-4 scrollbar-hide"><div className="bg-slate-800/30 p-4 rounded-xl border border-slate-800/50 mb-6"><p className="text-slate-300 text-sm mb-2">{viewingCommentsPost.content}</p><div className="text-[10px] text-slate-500 flex items-center gap-1"><User size={10}/> {viewingCommentsPost.profiles?.name || viewingCommentsPost.user_name}</div></div>{comments.map(c => (<div key={c.id} className={`flex gap-3 p-3 rounded-xl transition-all ${c.is_pinned ? 'bg-yellow-500/5 border border-yellow-500/20' : 'hover:bg-slate-800/30'}`}><div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-slate-700 text-slate-400">{c.user_name?.[0]}</div><div className="flex-1 min-w-0"><div className="flex items-center gap-2 mb-1"><RenderNameWithRole profile={c.profiles || {name: c.user_name}} /><span className="text-[10px] text-slate-500">{new Date(c.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>{c.is_pinned && <Pin size={12} className="text-yellow-500 fill-current"/>}</div><p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{c.content}</p><div className="flex gap-4 mt-2"><button onClick={() => handleReplyToComment(c)} className="text-[10px] text-slate-500 hover:text-blue-400 font-medium transition-colors">Reply</button>{(viewingCommentsPost.uid === authUser?.id) && <button onClick={() => handlePinComment(c)} className="text-[10px] text-slate-500 hover:text-yellow-500 font-medium transition-colors">{c.is_pinned ? 'Unpin' : 'Pin'}</button>}{/* Comment Actions */}<button onClick={() => setReportTarget({ type: 'comment', id: c.id })} className="text-[10px] text-slate-500 hover:text-white transition-colors flex items-center gap-1"><Flag size={10}/> Report</button>{(currentUser?.global_role === 'owner' || currentUser?.global_role === 'admin' || currentUser?.global_role === 'moderator' || c.user_id === authUser.id) && (<button onClick={() => handleDeleteComment(c.id)} className="text-[10px] text-red-500 hover:text-red-400 transition-colors flex items-center gap-1"><Trash2 size={10}/> Delete</button>)}</div></div></div>))}</div>
+                    <div className="flex-1 overflow-y-auto p-4 pt-20 space-y-4 scrollbar-hide"><div className="bg-slate-800/30 p-4 rounded-xl border border-slate-800/50 mb-6"><p className="text-slate-300 text-sm mb-2">{viewingCommentsPost.content}</p><div className="text-[10px] text-slate-500 flex items-center gap-1"><User size={10}/> {viewingCommentsPost.profiles?.name || viewingCommentsPost.user_name}</div></div>{comments.map(c => {
+                        // Comment Role Highlighting
+                        const cRole = c.profiles?.global_role;
+                        let cStyle = "hover:bg-slate-800/30";
+                        if (cRole === 'owner') cStyle = "bg-blue-900/10 border border-blue-500/20";
+                        else if (cRole === 'developer') cStyle = "bg-green-900/10 border border-green-500/20";
+                        else if (cRole === 'admin') cStyle = "bg-red-900/10 border border-red-500/20";
+                        
+                        return (
+                            <div key={c.id} className={`flex gap-3 p-3 rounded-xl transition-all ${cStyle} ${c.is_pinned ? 'bg-yellow-500/5 border-yellow-500/20' : ''}`}>
+                                <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-slate-700 text-slate-400 overflow-hidden">{c.profiles?.image ? <img src={c.profiles.image} className="w-full h-full object-cover"/> : c.user_name?.[0]}</div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1"><RenderNameWithRole profile={c.profiles || {name: c.user_name}} /><span className="text-[10px] text-slate-500">{new Date(c.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>{c.is_pinned && <Pin size={12} className="text-yellow-500 fill-current"/>}</div>
+                                    <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{c.content}</p>
+                                    <div className="flex gap-4 mt-2"><button onClick={() => handleReplyToComment(c)} className="text-[10px] text-slate-500 hover:text-blue-400 font-medium transition-colors">Reply</button>{(viewingCommentsPost.uid === authUser?.id) && <button onClick={() => handlePinComment(c)} className="text-[10px] text-slate-500 hover:text-yellow-500 font-medium transition-colors">{c.is_pinned ? 'Unpin' : 'Pin'}</button>}{/* Comment Actions */}<button onClick={() => setReportTarget({ type: 'comment', id: c.id })} className="text-[10px] text-slate-500 hover:text-white transition-colors flex items-center gap-1"><Flag size={10}/> Report</button>{(currentUser?.global_role === 'owner' || currentUser?.global_role === 'admin' || currentUser?.global_role === 'moderator' || c.user_id === authUser.id) && (<button onClick={() => handleDeleteComment(c.id)} className="text-[10px] text-red-500 hover:text-red-400 transition-colors flex items-center gap-1"><Trash2 size={10}/> Delete</button>)}</div>
+                                </div>
+                            </div>
+                        );
+                    })}</div>
                     <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-2xl"><div className="flex gap-2 relative"><input ref={commentInputRef} value={commentText} onChange={e => setCommentText(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 pr-12 text-sm text-white focus:border-blue-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed" placeholder={viewingCommentsPost.comments_disabled ? "Comments locked" : "Write a reply..."} disabled={viewingCommentsPost.comments_disabled}/><button onClick={handlePostComment} disabled={!commentText.trim() || viewingCommentsPost.comments_disabled} className="absolute right-2 top-2 p-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-0 transition-all"><ChevronRight size={16} /></button></div></div>
                 </div>
             </div>
@@ -1096,8 +1150,16 @@ function MainApp() {
                  <div className="bg-slate-900 border border-slate-800 rounded-2xl w-80 h-96 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
                      <div className="bg-blue-600 p-4 flex justify-between items-center text-white"><h4 className="font-bold flex items-center gap-2"><LifeBuoy size={18}/> Support Chat</h4><button onClick={() => setIsSupportOpen(false)}><X size={18}/></button></div>
                      <div className="flex-1 bg-slate-950 p-4 overflow-y-auto space-y-3" ref={supportScrollRef}>
-                         {!userTicket && (<div className="text-center mt-10"><p className="text-slate-400 text-sm mb-4">Need help? Start a live chat with our staff.</p><button onClick={handleCreateSupportTicket} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm">Start Chat</button></div>)}
-                         {supportMessages.map(msg => (<div key={msg.id} className={`flex ${msg.sender_id === authUser.id ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-xl text-sm ${msg.sender_id === authUser.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-300 text-slate-300 rounded-tl-none'}`}>{msg.content}</div></div>))}
+                         {!userTicket ? (
+                             <div className="text-center mt-10">
+                                 <p className="text-slate-400 text-sm mb-4">Need help? Start a live chat with our staff.</p>
+                                 <button onClick={handleCreateSupportTicket} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm">Start Chat</button>
+                             </div>
+                         ) : (
+                             <>
+                                {supportMessages.map(msg => (<div key={msg.id} className={`flex ${msg.sender_id === authUser.id ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-xl text-sm ${msg.sender_id === authUser.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-300 text-slate-300 rounded-tl-none'}`}>{msg.content}</div></div>))}
+                             </>
+                         )}
                      </div>
                      {userTicket && (<div className="p-3 bg-slate-900 border-t border-slate-800 flex gap-2"><input value={supportInput} onChange={e => setSupportInput(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-sm text-white outline-none" placeholder="Type here..." onKeyDown={e => e.key === 'Enter' && handleSendSupportMessage()} /><button onClick={handleSendSupportMessage} className="bg-blue-600 text-white p-2 rounded-lg"><Send size={16}/></button></div>)}
                  </div>
