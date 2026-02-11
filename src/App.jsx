@@ -20,8 +20,8 @@ const getEnvVar = (key, fallback) => {
   return fallback;
 };
 
-const SUPABASE_URL = getEnvVar('REACT_APP_SUPABASE_URL', "https://wcavpryumlohjccxiohq.supabase.co");
-const SUPABASE_KEY = getEnvVar('REACT_APP_SUPABASE_ANON_KEY', "sb_publishable_EoFH2MIrf4Xc1cJJaiAlHg_ct72t-ru");
+const SUPABASE_URL = getEnvVar('REACT_APP_SUPABASE_URL');
+const SUPABASE_KEY = getEnvVar('REACT_APP_SUPABASE_ANON_KEY');
 
 // --- CONSTANTS ---
 const TAGS = [
