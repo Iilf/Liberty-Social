@@ -5,7 +5,7 @@ import {
   Flag, AlertTriangle, ArrowLeft, Settings, Compass, Mail, Key, Trash2, Crown, Ban, 
   Edit3, UserMinus, UserCog, UserPlus, Hash, Megaphone, CalendarDays, Pin, Check, 
   Star, BadgeCheck, ClipboardList, Send, LifeBuoy, Phone, Inbox, Clock, Hammer, Badge, 
-  FileCheck, FileWarning, Tag, AlertOctagon, Globe, LogIn, RefreshCw, Zap, Layout, Filter, MessageCircle
+  FileCheck, FileWarning, Tag, AlertOctagon, Globe, LogIn, RefreshCw, Zap, Layout, Filter, MessageCircle, Download
 } from 'lucide-react';
 
 // --- CONFIGURATION ---
@@ -243,7 +243,7 @@ function MainApp() {
   const supportScrollRef = useRef(null);
   const chatScrollRef = useRef(null);
   const commentInputRef = useRef(null);
-  const scrollContainerRef = useRef(null); // Add missing ref
+  const scrollContainerRef = useRef(null); 
 
   // 2. HELPERS & HANDLERS
   const isGlobalStaff = ['owner', 'admin', 'moderator', 'investigator', 'developer'].includes(currentUser?.global_role);
@@ -393,6 +393,75 @@ function MainApp() {
         console.error("Delete Error:", e);
         alert("Failed to delete account completely: " + e.message);
         setAuthLoading(false); 
+    }
+  };
+
+  const handleRequestData = async () => {
+    if (!supabase || !authUser) return;
+    if (!window.confirm("Download all your personal data? This may take a moment.")) return;
+    
+    try {
+      setAuthLoading(true);
+      const uid = authUser.id;
+
+      // Fetch all data in parallel
+      const [
+        { data: profile },
+        { data: posts },
+        { data: comments },
+        { data: likes },
+        { data: groups },
+        { data: chat },
+        { data: support },
+        { data: apps }
+      ] = await Promise.all([
+          supabase.from('profiles').select('*').eq('id', uid).single(),
+          supabase.from('posts').select('*').eq('uid', uid),
+          supabase.from('comments').select('*').eq('user_id', uid),
+          supabase.from('likes').select('*').eq('user_id', uid),
+          supabase.from('group_members').select('*, groups(*)').eq('user_id', uid),
+          supabase.from('global_chat').select('*').eq('user_id', uid),
+          supabase.from('support_tickets').select('*, support_messages(*)').eq('user_id', uid),
+          supabase.from('applications').select('*').eq('user_id', uid)
+      ]);
+
+      const allData = {
+        user_info: {
+            id: uid,
+            email: authUser.email, 
+            ...profile
+        },
+        groups_joined: groups,
+        content_created: {
+            posts: posts,
+            comments: comments,
+        },
+        activity: {
+            likes: likes,
+            applications: apps,
+            support_history: support
+        },
+        // Messages at the bottom as requested
+        chat_history: chat 
+      };
+
+      // Create downloadable file
+      const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `liberty_social_data_${new Date().toISOString()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert("Data download started.");
+
+    } catch (e) {
+      alert("Failed to gather data: " + e.message);
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -642,7 +711,28 @@ function MainApp() {
     return () => { supabase.removeChannel(channel); };
   }, [viewingCommentsPost, supabase]);
 
-  // Support messages fetch (User side only)
+  useEffect(() => {
+    if (supabase && currentUser) {
+        if (currentView === 'investigation') {
+            const fetchReports = async () => {
+                const { data } = await supabase.from('reports').select(`*, profiles:reporter_id ( name )`).eq('status', investigationTab).order('created_at', { ascending: false });
+                if (data) setReports(data);
+            };
+            fetchReports();
+            const reportChannel = supabase.channel('reports_channel')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, async () => { fetchReports(); }).subscribe();
+            return () => supabase.removeChannel(reportChannel);
+        }
+        if (currentView === 'review_apps') {
+             const fetchApps = async () => {
+                 const { data } = await supabase.from('applications').select(`*, profiles:user_id ( id, name, username )`).eq('status', 'pending').order('created_at', { ascending: false });
+                 if(data) setApplications(data);
+             }
+             fetchApps();
+        }
+    }
+  }, [currentView, investigationTab, supabase, currentUser]);
+
   useEffect(() => {
     const ticketId = userTicket?.id;
     if (!ticketId || !supabase) return;
@@ -660,6 +750,18 @@ function MainApp() {
     }).subscribe();
     return () => supabase.removeChannel(channel);
   }, [userTicket, supabase]);
+
+  useEffect(() => {
+    if (currentView === 'active_calls' && supabase) {
+        const fetchCalls = async () => {
+            const { data } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
+            setSupportList(data || []);
+        };
+        fetchCalls();
+        const channel = supabase.channel('all_tickets').on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => { fetchCalls(); }).subscribe();
+        return () => supabase.removeChannel(channel);
+    }
+  }, [currentView, supabase]);
 
   useEffect(() => {
       if (feedMode === 'chat' && supabase) {
@@ -774,6 +876,7 @@ function MainApp() {
           <NavItem icon={<User size={18}/>} label="Profile" active={currentView === 'profile'} onClick={goProfile} />
           <NavItem icon={<Inbox size={18}/>} label="Applications" active={currentView === 'applications'} onClick={() => setCurrentView('applications')} />
           <NavItem icon={<Settings size={18}/>} label="Settings" onClick={() => { goProfile(); setActiveModal('settings'); }} />
+          {/* STAFF AREA REMOVED AS REQUESTED */}
         </div>
         <div className="mt-auto pt-4 border-t border-slate-800"><button onClick={() => setIsSupportOpen(!isSupportOpen)} className="flex items-center gap-3 px-3 py-3 w-full rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"><LifeBuoy size={18}/> <span className="text-sm font-semibold">Get Help</span></button></div>
       </nav>
@@ -869,25 +972,7 @@ function MainApp() {
             </div>
         )}
 
-        {currentView === 'review_apps' && (
-            <div className="p-6">
-                <div className="space-y-4">{applications.length === 0 ? <div className="text-center py-10 text-slate-500">No pending applications.</div> : applications.map(app => (<div key={app.id} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl"><div className="flex justify-between mb-2"><span className="font-bold text-white text-lg">{app.profiles?.name} <span className="text-slate-500 text-sm font-normal">(@{app.profiles?.username})</span></span><span className="text-xs bg-yellow-500/20 text-yellow-500 px-2 py-1 rounded font-bold uppercase">{app.type}</span></div><p className="text-slate-300 text-sm mb-4">{app.content}</p><div className="flex gap-2"><button onClick={() => handleReviewApp(app, 'approve')} className="bg-green-600/20 text-green-400 px-4 py-2 rounded font-bold text-sm hover:bg-green-600/30">Approve</button><button onClick={() => handleReviewApp(app, 'reject')} className="bg-red-600/20 text-red-400 px-4 py-2 rounded font-bold text-sm hover:bg-red-600/30">Reject</button></div></div>))}</div>
-            </div>
-        )}
-
-        {currentView === 'investigation' && (
-            <div className="p-6">
-                <div className="flex gap-2 mb-6 border-b border-slate-800 pb-1">{['pending', 'resolved', 'dismissed'].map(tab => (<button key={tab} onClick={() => setInvestigationTab(tab)} className={`px-4 py-2 text-sm font-bold capitalize border-b-2 transition-colors ${investigationTab === tab ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'}`}>{tab === 'dismissed' ? 'Ignored' : tab}</button>))}</div>
-                <div className="space-y-3">{reports.length === 0 ? <div className="text-center text-slate-500 py-10">No reports found in {investigationTab}.</div> : reports.map(report => (<div key={report.id} className="bg-slate-900/50 border border-slate-800 p-4 rounded-xl flex flex-col gap-2"><div className="flex justify-between items-start"><div><span className="text-xs bg-slate-800 px-2 py-1 rounded text-slate-400 border border-slate-700 mr-2 uppercase font-bold">{report.target_type}</span><span className="font-bold text-slate-200">Reason: {report.reason}</span></div><span className="text-xs text-slate-500">{new Date(report.created_at).toLocaleDateString()}</span></div><p className="text-sm text-slate-400">Reported by: {report.profiles?.name}</p><div className="flex gap-2 mt-2">{(report.target_type === 'post' || report.target_type === 'comment') && (<button onClick={() => handleViewReportedPost(report.target_id, report.target_type)} className="px-3 py-1.5 bg-blue-500/10 text-blue-400 text-xs font-bold rounded hover:bg-blue-500/20">View Context</button>)}{investigationTab === 'pending' && (<><button onClick={() => handleUpdateReportStatus(report.id, 'resolved')} className="px-3 py-1.5 bg-green-500/10 text-green-400 text-xs font-bold rounded hover:bg-green-500/20">Complete</button><button onClick={() => handleUpdateReportStatus(report.id, 'dismissed')} className="px-3 py-1.5 bg-slate-700 text-slate-400 text-xs font-bold rounded hover:bg-slate-600">Ignore</button></>)}</div></div>))}</div>
-            </div>
-        )}
-
-        {currentView === 'active_calls' && (
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-80px)]">
-                <div className="lg:col-span-1 bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden flex flex-col"><div className="p-4 border-b border-slate-800 font-bold">Open Tickets</div><div className="flex-1 overflow-y-auto">{supportList.map(ticket => (<div key={ticket.id} onClick={() => setActiveStaffTicket(ticket)} className={`p-4 border-b border-slate-800/50 cursor-pointer hover:bg-slate-800/50 ${activeStaffTicket?.id === ticket.id ? 'bg-blue-900/10 border-l-2 border-l-blue-500' : ''}`}><div className="flex items-center gap-2"><User size={14} className="text-slate-400"/><span className="font-bold text-sm text-slate-200">{ticket.user_name || 'Unknown User'}</span></div><span className="text-xs text-slate-500 mt-1 block">Opened: {new Date(ticket.created_at).toLocaleTimeString()}</span></div>))}</div></div>
-                <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">{activeStaffTicket ? (<><div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-950"><h3 className="font-bold flex items-center gap-2"><Phone size={18} className="text-green-500"/> Chatting with {activeStaffTicket.user_name}</h3><button onClick={() => handleCloseTicket(activeStaffTicket.id)} className="text-xs bg-red-900/20 text-red-500 px-3 py-1.5 rounded border border-red-900/50 hover:bg-red-900/40">Close Ticket</button></div><div className="flex-1 overflow-y-auto p-4 space-y-3" ref={supportScrollRef}>{supportMessages.map(msg => { const isMe = msg.sender_id === authUser.id; const roleColor = msg.profiles?.global_role === 'owner' ? 'text-blue-400' : msg.profiles?.global_role === 'admin' ? 'text-orange-400' : 'text-slate-400'; return (<div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[70%] p-3 rounded-xl text-sm ${isMe ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-800 text-slate-200 rounded-tl-none'}`}>{!isMe && <div className={`text-[10px] font-bold mb-1 ${roleColor}`}>{msg.profiles?.name}</div>}{msg.content}</div></div>); })}</div><div className="p-4 bg-slate-950 border-t border-slate-800 flex gap-2"><input value={supportInput} onChange={e => setSupportInput(e.target.value)} className="flex-1 bg-slate-900 border border-slate-800 rounded-xl p-3 text-sm outline-none" placeholder="Type a message..." onKeyDown={e => e.key === 'Enter' && handleSendSupportMessage()} /><button onClick={handleSendSupportMessage} className="p-3 bg-blue-600 rounded-xl text-white"><Send size={16}/></button></div></>) : (<div className="flex-1 flex flex-col items-center justify-center text-slate-500"><Inbox size={48} className="mb-4 opacity-20"/><p>Select a ticket to view conversation.</p></div>)}</div>
-            </div>
-        )}
+        {/* Removed 'review_apps', 'investigation', 'active_calls' render blocks to fulfill request */}
 
         {(currentView === 'single_group' || currentView === 'groups') && (
             <div className="pb-10 max-w-3xl mx-auto">
@@ -988,178 +1073,13 @@ function MainApp() {
             </div>
         )}
 
-        {/* --- MODALS & WIDGETS --- */}
-
-        {/* Profile Viewer Modal */}
-        {activeModal === 'view_profile' && viewingUser && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 w-full max-w-sm relative overflow-hidden shadow-2xl">
-                     <div className="absolute top-0 left-0 w-full h-24 bg-gradient-to-br from-blue-900 to-slate-900"></div>
-                     <button onClick={() => setActiveModal(null)} className="absolute top-4 right-4 bg-black/40 hover:bg-black/60 text-white p-2 rounded-full backdrop-blur-sm transition-colors z-10"><X size={16}/></button>
-                     <div className="relative mt-8 flex flex-col items-center">
-                         <div className="w-24 h-24 bg-slate-950 rounded-full border-4 border-slate-900 flex items-center justify-center mb-4 overflow-hidden shadow-lg"><User size={48} className="text-slate-500"/></div>
-                         <h2 className="text-2xl font-bold text-white flex items-center gap-2">{viewingUser.name} {viewingUser.global_role === 'owner' && <Crown size={20} className="text-yellow-500" fill="currentColor"/>}</h2>
-                         <p className="text-slate-400 text-sm">@{viewingUser.username}</p>
-                         <div className="flex flex-wrap gap-2 mt-4 justify-center"><span className="text-xs bg-slate-800 px-3 py-1 rounded-full text-slate-300 border border-slate-700">{viewingUser.role}</span>{(Array.isArray(viewingUser.badges) ? viewingUser.badges : []).map(b => (<span key={b} className="text-xs bg-blue-900/30 text-blue-400 px-3 py-1 rounded-full border border-blue-500/30 capitalize">{b}</span>))}</div>
-                         {isGlobalStaff && (<div className="w-full mt-6 pt-6 border-t border-slate-800"><h4 className="text-xs font-bold uppercase text-slate-500 mb-3">Moderation Tools</h4><div className="grid grid-cols-2 gap-3"><div className="bg-slate-950 p-3 rounded-xl border border-slate-800 text-center"><div className="text-xl font-bold text-white">{viewingUser.warning_count || 0}</div><div className="text-[10px] text-slate-500 uppercase font-bold">Warnings</div></div><button onClick={() => handleWarnUser(viewingUser.id)} className="bg-yellow-900/20 hover:bg-yellow-900/40 text-yellow-500 border border-yellow-500/20 rounded-xl font-bold text-xs transition-colors">Issue Warning</button></div><button onClick={() => handleBanUser(viewingUser.id)} className="w-full mt-3 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-500/20 py-3 rounded-xl font-bold text-xs transition-colors flex items-center justify-center gap-2"><Ban size={14}/> Ban User Globally</button></div>)}
-                     </div>
-                </div>
-            </div>
-        )}
-        
-        {/* Report Modal */}
-        {reportTarget && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm">
-            <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold text-red-500 flex items-center gap-2"><AlertTriangle size={20}/> Report Content</h3><button onClick={() => setReportTarget(null)} className="text-slate-500 hover:text-white"><X size={20}/></button></div>
-            <p className="text-sm text-slate-400 mb-4">Why are you reporting this {reportTarget.type}?</p>
-            <div className="space-y-2">{['Fail RP', 'Toxicity / Harassment', 'Spam', 'Inappropriate Content'].map(reason => (<button key={reason} onClick={() => handleReport(reason)} className="w-full text-left px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-sm font-medium transition-colors">{reason}</button>))}</div>
-          </div>
-        </div>
-        )}
-
-        {(activeModal === 'verify' || activeModal === 'apply_staff') && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-sm relative overflow-hidden">
-                    <div className={`absolute top-0 left-0 w-full h-1 bg-gradient-to-r ${activeModal === 'verify' ? 'from-yellow-600 to-yellow-400' : 'from-blue-600 to-blue-400'}`}></div>
-                    <h3 className="text-lg font-bold flex items-center gap-2 mb-4 text-white">{activeModal === 'verify' ? <><Star size={20} className="text-yellow-500" fill="currentColor"/> Influencer Application</> : <><Shield size={20} className="text-blue-500" fill="currentColor"/> Staff Application</>}</h3>
-                    <p className="text-sm text-slate-400 mb-4 leading-relaxed">{activeModal === 'verify' ? "Apply for verification to get the verified star badge. Requirements: 1000+ followers." : "Apply to join the Global Staff team. Must be active and helpful."}</p>
-                    <form onSubmit={handleSubmitApplication} className="space-y-3"><input name="link" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-slate-600 transition-colors" placeholder={activeModal === 'verify' ? "Social Media Link" : "Portfolio / Experience Link"} required /><textarea name="reason" className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none h-24 resize-none focus:border-slate-600 transition-colors" placeholder="Why should you be accepted?" required /><div className="flex gap-2 pt-2"><button type="button" onClick={() => setActiveModal(null)} className="flex-1 bg-slate-800 hover:bg-slate-700 text-white rounded-xl py-2.5 text-sm font-bold transition-colors">Cancel</button><button type="submit" className={`flex-1 text-black rounded-xl py-2.5 text-sm font-bold transition-colors ${activeModal === 'verify' ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}>Apply</button></div></form>
-                </div>
-            </div>
-        )}
-
-        {/* ACCOUNT & SETTINGS MODALS */}
-        {activeModal === 'settings' && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in zoom-in-95">
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md">
-                <h3 className="font-bold text-lg mb-4 text-white">Account Settings</h3>
-                <form onSubmit={handleUpdateProfile} className="space-y-4"><div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Display Name</label><input name="displayName" defaultValue={currentUser.name} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 transition-colors" /></div><div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Role</label><select name="role" defaultValue={currentUser.role} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 transition-colors"><option value="Civilian">Civilian</option><option value="Law Enforcement">Law Enforcement</option><option value="Fire/EMS">Fire/EMS</option><option value="DOT">DOT / Public Works</option></select></div><button className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold transition-all">Save Changes</button></form>
-                <div className="mt-4 flex gap-2"><button className="flex-1 bg-slate-800 text-slate-300 py-2 rounded-xl text-sm hover:bg-slate-700 transition-colors border border-slate-700" onClick={() => alert("Terms of Service:\n\n1. Be respectful.\n2. No illegal content.\n3. Follow roleplay rules.")}>TOS</button><button className="flex-1 bg-slate-800 text-slate-300 py-2 rounded-xl text-sm hover:bg-slate-700 transition-colors border border-slate-700" onClick={() => alert("Privacy Policy:\n\nWe collect your email and profile data to facilitate the app experience.")}>Privacy</button></div>
-                <div className="mt-6 pt-6 border-t border-slate-800"><button onClick={handleDeleteAccount} className="w-full bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 py-3 rounded-xl font-bold transition-all">Delete Account</button><button onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-500 hover:text-slate-300 py-2 text-sm">Cancel</button></div>
-              </div>
-            </div>
-        )}
-
-        {activeModal === 'group_settings' && activeGroup && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in zoom-in-95">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md">
-                    <h3 className="font-bold text-lg mb-4 text-white">Group Settings</h3>
-                    <form onSubmit={handleUpdateGroup} className="space-y-4">
-                        <div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Name</label><input name="groupName" defaultValue={activeGroup.name} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500" /></div>
-                        <div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Logo</label><input name="groupImage" defaultValue={activeGroup.image} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500" placeholder="https://..." /></div>
-                        <div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Banner</label><input name="groupBanner" defaultValue={activeGroup.banner} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500" placeholder="https://..." /></div>
-                        <div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Description</label><textarea name="groupDesc" defaultValue={activeGroup.description} className="w-full bg-black/40 border border-slate-700 rounded-xl p-3 text-white outline-none focus:border-blue-500 h-24 resize-none" /></div>
-                         <div className="space-y-1"><label className="text-xs font-bold uppercase text-slate-500">Community Tags</label><div className="flex flex-wrap gap-2">{AVAILABLE_GROUP_TAGS.map(tag => (<button type="button" key={tag.id} onClick={() => toggleGroupTag(tag.id, true)} className={`text-[10px] px-2 py-1 rounded border transition-all ${editGroupTags.includes(tag.id) ? tag.color + ' ring-1 ring-white/50' : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-slate-700'}`}>{tag.id}</button>))}{isGlobalStaff && (<button type="button" onClick={() => toggleGroupTag('Official', true)} className={`text-[10px] px-2 py-1 rounded border transition-all ${editGroupTags.includes('Official') ? 'bg-green-500/20 text-green-300 border-green-500/30 ring-1 ring-white/50' : 'bg-slate-800 border-slate-700 text-slate-500 hover:bg-slate-700'}`}>Official</button>)}</div></div>
-                        <button className="w-full bg-blue-600 hover:bg-blue-500 text-white py-3 rounded-xl font-bold">Save Changes</button>
-                    </form>
-                    <div className="mt-6 pt-6 border-t border-slate-800"><button onClick={handleDeleteGroup} className="w-full bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 py-3 rounded-xl font-bold">Delete Group</button><button onClick={() => setActiveModal(null)} className="w-full mt-2 text-slate-500 hover:text-slate-300 py-2 text-sm">Cancel</button></div>
-                </div>
-            </div>
-        )}
-
-        {/* Member Management Modal - UPDATED */}
-        {activeModal === 'members' && activeGroup && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 animate-in fade-in zoom-in-95">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md flex flex-col h-[70vh]">
-                    <div className="p-4 border-b border-slate-800 flex justify-between items-center"><h3 className="font-bold text-white">Members ({memberCount})</h3><button onClick={() => setActiveModal(null)} className="p-1 hover:bg-slate-800 rounded"><X size={20}/></button></div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {groupMembers.map(member => {
-                             const isMe = member.user_id === authUser.id;
-                             const isAdmin = currentGroupRole === 'admin';
-                             const isMod = currentGroupRole === 'moderator';
-                             const canManage = (isAdmin || (isMod && member.role === 'member')) && !isMe;
-                             
-                             return (
-                                <div key={member.user_id} className="flex flex-col p-3 bg-slate-950/50 rounded-xl border border-slate-800 gap-3">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center overflow-hidden">
-                                                {member.profiles?.image ? <img src={member.profiles.image} className="w-full h-full object-cover"/> : <User size={14}/>}
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                                                    {member.nickname || member.profiles?.name || 'User'}
-                                                    {member.nickname && <span className="text-[10px] font-normal text-slate-500">(@{member.profiles?.username})</span>}
-                                                </p>
-                                                <span className={`text-[10px] uppercase font-bold px-1.5 py-0.5 rounded ${member.role === 'admin' ? 'bg-red-500/20 text-red-400' : member.role === 'moderator' ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-500'}`}>{member.role}</span>
-                                            </div>
-                                        </div>
-                                        {canManage && (
-                                            <div className="flex gap-2">
-                                                 <button onClick={() => setEditingMemberId(member.user_id === editingMemberId ? null : member.user_id)} className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors"><Settings size={14}/></button>
-                                            </div>
-                                        )}
-                                    </div>
-                                    
-                                    {/* Edit Member Actions */}
-                                    {editingMemberId === member.user_id && (
-                                        <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 animate-in slide-in-from-top-2">
-                                            <div className="col-span-2 flex gap-2">
-                                                <input type="text" placeholder="Set Nickname" className="flex-1 bg-black/40 border border-slate-700 rounded p-1.5 text-xs text-white" onKeyDown={(e) => { if(e.key === 'Enter') handleSetNickname(member.user_id, e.target.value) }} />
-                                            </div>
-                                            {isAdmin && (
-                                                <select className="bg-slate-800 text-white text-xs p-2 rounded border border-slate-700 outline-none" value={member.role} onChange={(e) => handleUpdateMemberRole(member.user_id, e.target.value)}>
-                                                    <option value="member">Member</option>
-                                                    <option value="moderator">Moderator</option>
-                                                    <option value="admin">Admin</option>
-                                                </select>
-                                            )}
-                                            <button onClick={() => handleKickMember(member.user_id)} className="bg-orange-900/20 text-orange-500 hover:bg-orange-900/40 p-2 rounded text-xs font-bold border border-orange-900/50">Kick</button>
-                                            <button onClick={() => handleBanMember(member.user_id)} className="col-span-2 bg-red-900/20 text-red-500 hover:bg-red-900/40 p-2 rounded text-xs font-bold border border-red-900/50 flex items-center justify-center gap-2"><Ban size={12}/> Ban from Group</button>
-                                        </div>
-                                    )}
-                                </div>
-                             );
-                        })}
-                    </div>
-                </div>
-            </div>
-        )}
-
-        {viewingCommentsPost && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in zoom-in-95 duration-200">
-                <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-lg h-[80vh] flex flex-col shadow-2xl relative">
-                    <div className="p-4 border-b border-slate-800 flex justify-between items-center bg-slate-900/50 backdrop-blur-md absolute top-0 left-0 right-0 z-10 rounded-t-2xl"><h3 className="font-bold text-white flex items-center gap-2"><MessageSquare size={18} className="text-blue-500"/> Thread</h3><div className="flex items-center gap-2">{(currentUser?.global_role === 'owner' || currentUser?.global_role === 'admin' || viewingCommentsPost.uid === authUser?.id) && (<button onClick={handleToggleComments} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">{viewingCommentsPost.comments_disabled ? <Lock size={16} className="text-red-400"/> : <Unlock size={16}/>}</button>)}<button onClick={() => setViewingCommentsPost(null)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"><X size={20}/></button></div></div>
-                    <div className="flex-1 overflow-y-auto p-4 pt-20 space-y-4 scrollbar-hide"><div className="bg-slate-800/30 p-4 rounded-xl border border-slate-800/50 mb-6"><p className="text-slate-300 text-sm mb-2">{viewingCommentsPost.content}</p><div className="text-[10px] text-slate-500 flex items-center gap-1"><User size={10}/> {viewingCommentsPost.profiles?.name || viewingCommentsPost.user_name}</div></div>{comments.map(c => {
-                        // Comment Role Highlighting
-                        const cRole = c.profiles?.global_role;
-                        let cStyle = "hover:bg-slate-800/30";
-                        if (cRole === 'owner') cStyle = "bg-blue-900/10 border border-blue-500/20";
-                        else if (cRole === 'developer') cStyle = "bg-green-900/10 border border-green-500/20";
-                        else if (cRole === 'admin') cStyle = "bg-red-900/10 border border-red-500/20";
-                        
-                        return (
-                            <div key={c.id} className={`flex gap-3 p-3 rounded-xl transition-all ${cStyle} ${c.is_pinned ? 'bg-yellow-500/5 border-yellow-500/20' : ''}`}>
-                                <div className="w-8 h-8 bg-slate-800 rounded-full flex items-center justify-center font-bold text-xs shrink-0 border border-slate-700 text-slate-400 overflow-hidden">{c.profiles?.image ? <img src={c.profiles.image} className="w-full h-full object-cover"/> : c.user_name?.[0]}</div>
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2 mb-1"><RenderNameWithRole profile={c.profiles || {name: c.user_name}} /><span className="text-[10px] text-slate-500">{new Date(c.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>{c.is_pinned && <Pin size={12} className="text-yellow-500 fill-current"/>}</div>
-                                    <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{c.content}</p>
-                                    <div className="flex gap-4 mt-2"><button onClick={() => handleReplyToComment(c)} className="text-[10px] text-slate-500 hover:text-blue-400 font-medium transition-colors">Reply</button>{(viewingCommentsPost.uid === authUser?.id) && <button onClick={() => handlePinComment(c)} className="text-[10px] text-slate-500 hover:text-yellow-500 font-medium transition-colors">{c.is_pinned ? 'Unpin' : 'Pin'}</button>}{/* Comment Actions */}<button onClick={() => setReportTarget({ type: 'comment', id: c.id })} className="text-[10px] text-slate-500 hover:text-white transition-colors flex items-center gap-1"><Flag size={10}/> Report</button>{(currentUser?.global_role === 'owner' || currentUser?.global_role === 'admin' || currentUser?.global_role === 'moderator' || c.user_id === authUser.id) && (<button onClick={() => handleDeleteComment(c.id)} className="text-[10px] text-red-500 hover:text-red-400 transition-colors flex items-center gap-1"><Trash2 size={10}/> Delete</button>)}</div>
-                                </div>
-                            </div>
-                        );
-                    })}</div>
-                    <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-2xl"><div className="flex gap-2 relative"><input ref={commentInputRef} value={commentText} onChange={e => setCommentText(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-xl p-3 pr-12 text-sm text-white focus:border-blue-500 outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed" placeholder={viewingCommentsPost.comments_disabled ? "Comments locked" : "Write a reply..."} disabled={viewingCommentsPost.comments_disabled}/><button onClick={handlePostComment} disabled={!commentText.trim() || viewingCommentsPost.comments_disabled} className="absolute right-2 top-2 p-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg disabled:opacity-0 transition-all"><ChevronRight size={16} /></button></div></div>
-                </div>
-            </div>
-        )}
-
         <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">
              {isSupportOpen && (
                  <div className="bg-slate-900 border border-slate-800 rounded-2xl w-80 h-96 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
                      <div className="bg-blue-600 p-4 flex justify-between items-center text-white"><h4 className="font-bold flex items-center gap-2"><LifeBuoy size={18}/> Support Chat</h4><button onClick={() => setIsSupportOpen(false)}><X size={18}/></button></div>
                      <div className="flex-1 bg-slate-950 p-4 overflow-y-auto space-y-3" ref={supportScrollRef}>
-                         {!userTicket ? (
-                             <div className="text-center mt-10">
-                                 <p className="text-slate-400 text-sm mb-4">Need help? Start a live chat with our staff.</p>
-                                 <button onClick={handleCreateSupportTicket} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm">Start Chat</button>
-                             </div>
-                         ) : (
-                             <>
-                                {supportMessages.map(msg => (<div key={msg.id} className={`flex ${msg.sender_id === authUser.id ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-xl text-sm ${msg.sender_id === authUser.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-300 text-slate-300 rounded-tl-none'}`}>{msg.content}</div></div>))}
-                             </>
-                         )}
+                         {!userTicket && (<div className="text-center mt-10"><p className="text-slate-400 text-sm mb-4">Need help? Start a live chat with our staff.</p><button onClick={handleCreateSupportTicket} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold text-sm">Start Chat</button></div>)}
+                         {supportMessages.map(msg => (<div key={msg.id} className={`flex ${msg.sender_id === authUser.id ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[80%] p-3 rounded-xl text-sm ${msg.sender_id === authUser.id ? 'bg-blue-600 text-white rounded-tr-none' : 'bg-slate-300 text-slate-300 rounded-tl-none'}`}>{msg.content}</div></div>))}
                      </div>
                      {userTicket && (<div className="p-3 bg-slate-900 border-t border-slate-800 flex gap-2"><input value={supportInput} onChange={e => setSupportInput(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-sm text-white outline-none" placeholder="Type here..." onKeyDown={e => e.key === 'Enter' && handleSendSupportMessage()} /><button onClick={handleSendSupportMessage} className="bg-blue-600 text-white p-2 rounded-lg"><Send size={16}/></button></div>)}
                  </div>
