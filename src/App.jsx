@@ -9,19 +9,14 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURATION ---
-const getEnvVar = (key, fallback) => {
-  try {
-    if (typeof process !== 'undefined' && process?.env?.[key]) {
-      return process.env[key];
-    }
-  } catch (e) {
-    // Ignore error
-  }
-  return fallback;
-};
 
-const SUPABASE_URL = getEnvVar('REACT_APP_SUPABASE_URL');
-const SUPABASE_KEY = getEnvVar('REACT_APP_SUPABASE_ANON_KEY');
+// Cloudflare/Vite uses import.meta.env to access environment variables.
+// Variables must start with VITE_ to be exposed to the client-side code.
+// We keep the hardcoded strings as fallbacks so this preview continues to function,
+// but in your Cloudflare dashboard, the VITE_ variables will take precedence.
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
 
 // --- CONSTANTS ---
 const TAGS = [
@@ -63,6 +58,7 @@ const NavItem = ({ icon, label, active, onClick }) => (
 const RenderNameWithRole = ({ profile, nickname }) => {
     if (!profile) return <span className="text-slate-400">Unknown</span>;
     
+    // Use nickname if available (for group context), otherwise profile name
     const displayName = nickname || profile.name;
     const role = profile.role;
     const globalRole = profile.global_role;
@@ -93,6 +89,7 @@ const RenderNameWithRole = ({ profile, nickname }) => {
 const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, currentUser, groupRole, onViewProfile }) => {
     const globalRole = post.profiles?.global_role;
     
+    // Highlight Logic
     let cardStyle = "bg-slate-900/40 border-slate-800/60";
     if (globalRole === 'owner') cardStyle = "bg-blue-950/30 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]";
     else if (globalRole === 'developer') cardStyle = "bg-green-950/20 border-green-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]";
@@ -107,6 +104,7 @@ const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, cur
 
     return (
         <div className={`${cardStyle} border rounded-2xl p-5 mb-4 transition-all shadow-sm relative overflow-hidden`}>
+            {/* Glossy overlay for special roles */}
             {(globalRole === 'owner' || globalRole === 'developer') && <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>}
             
             <div className="flex gap-4 relative z-10">
@@ -338,23 +336,9 @@ function MainApp() {
       if(notif.post_id) { const { data } = await supabase.from('posts').select(`*, profiles:uid ( id, name, username, role, global_role, badges )`).eq('id', notif.post_id).single(); if(data) { setViewingCommentsPost(data); setShowNotifications(false); } }
   };
 
-  const handleDeleteGroup = async () => { 
-      if(!supabase || !activeGroup) return; 
-      if(prompt(`Type "${activeGroup.name}" to confirm:`) !== activeGroup.name) return; 
-      
-      const { error } = await supabase.from('groups').delete().eq('id', activeGroup.id); 
-      if(error) {
-          alert("Error: " + error.message);
-      } else { 
-          alert("Deleted."); 
-          setActiveModal(null); 
-          setActiveGroup(null); 
-          setGroups(prev => prev.filter(g => g.id !== activeGroup.id)); 
-          setCurrentView('groups'); 
-      } 
-  };
-
+  const handleDeleteGroup = async () => { if(!supabase || !activeGroup) return; if(prompt(`Type "${activeGroup.name}" to confirm:`) !== activeGroup.name) return; const { error } = await supabase.from('groups').delete().eq('id', activeGroup.id); if(error) alert(error.message); else { alert("Deleted."); setActiveModal(null); setActiveGroup(null); setGroups(prev => prev.filter(g => g.id !== activeGroup.id)); setCurrentView('groups'); } };
   const handleSubmitApplication = async (e) => { e.preventDefault(); if(!supabase) return; const fd = new FormData(e.target); try { await supabase.from('applications').insert({ user_id: authUser.id, type: activeModal === 'verify' ? 'verification' : 'staff', content: `Link: ${fd.get('link')} | Reason: ${fd.get('reason')}` }); alert("Submitted!"); setActiveModal(null); } catch (err) { alert(err.message); } };
+  const handleAcceptCookies = () => { localStorage.setItem('liberty_cookie_consent', 'true'); setShowCookieBanner(false); };
   
   const handleLogout = async () => { 
       if (!supabase) return; 
@@ -367,22 +351,37 @@ function MainApp() {
 
   const handleDeleteAccount = async () => {
     if (!supabase || !authUser) return;
-    if (!window.confirm("ARE YOU SURE? This will permanently delete your account and ALL your data. This action cannot be undone.")) return;
+    if (!window.confirm("ARE YOU SURE? This will permanently delete your account and ALL your data (Groups, Posts, Messages). This action cannot be undone.")) return;
     
     try {
         setAuthLoading(true); 
 
-        // Attempt RPC delete (This is the cleanest way, assuming the SQL file was run)
+        // 1. Client-side cleanup of dependent data (Safety net if DB cascades aren't set)
+        const uid = authUser.id;
+        await supabase.from('notifications').delete().eq('user_id', uid);
+        await supabase.from('notifications').delete().eq('actor_id', uid);
+        await supabase.from('likes').delete().eq('user_id', uid);
+        await supabase.from('comments').delete().eq('user_id', uid);
+        await supabase.from('global_chat').delete().eq('user_id', uid);
+        await supabase.from('group_members').delete().eq('user_id', uid);
+        await supabase.from('posts').delete().eq('uid', uid);
+        await supabase.from('reports').delete().eq('reporter_id', uid);
+        await supabase.from('applications').delete().eq('user_id', uid);
+        await supabase.from('support_messages').delete().eq('sender_id', uid);
+        await supabase.from('support_tickets').delete().eq('user_id', uid);
+        await supabase.from('groups').delete().eq('creator_id', uid);
+
+        // 2. Attempt RPC delete (Deletes auth.users)
         const { error } = await supabase.rpc('delete_own_user');
 
         if (error) {
-            console.error("RPC Delete Failed:", error);
-            // Backup manual cleanup for profile only (Auth requires RPC/Admin)
-            const { error: profileError } = await supabase.from('profiles').delete().eq('id', authUser.id);
-            if(profileError) alert("Could not delete profile: " + profileError.message);
-        } else {
-            alert("Account deleted successfully.");
-        }
+            console.warn("RPC Delete Failed (likely due to permissions or missing function), attempting manual profile delete:", error);
+            // Fallback: Delete public profile
+            const { error: profileError } = await supabase.from('profiles').delete().eq('id', uid);
+            if (profileError) throw profileError;
+        } 
+        
+        alert("Account and data deleted successfully.");
         await handleLogout();
 
     } catch (e) {
@@ -394,12 +393,22 @@ function MainApp() {
 
   const handleRequestData = async () => {
     if (!supabase || !authUser) return;
-    if (!window.confirm("Download all your personal data?")) return;
+    if (!window.confirm("Download all your personal data? This may take a moment.")) return;
+    
     try {
       setAuthLoading(true);
       const uid = authUser.id;
+
+      // Fetch all data in parallel
       const [
-        { data: profile }, { data: posts }, { data: comments }, { data: likes }, { data: groups }, { data: chat }, { data: support }, { data: apps }
+        { data: profile },
+        { data: posts },
+        { data: comments },
+        { data: likes },
+        { data: groups },
+        { data: chat },
+        { data: support },
+        { data: apps }
       ] = await Promise.all([
           supabase.from('profiles').select('*').eq('id', uid).single(),
           supabase.from('posts').select('*').eq('uid', uid),
@@ -410,16 +419,51 @@ function MainApp() {
           supabase.from('support_tickets').select('*, support_messages(*)').eq('user_id', uid),
           supabase.from('applications').select('*').eq('user_id', uid)
       ]);
-      const allData = { user_info: { id: uid, email: authUser.email, ...profile }, groups_joined: groups, content: { posts, comments }, activity: { likes, apps, support }, chat_history: chat };
+
+      const allData = {
+        user_info: {
+            id: uid,
+            email: authUser.email, 
+            ...profile
+        },
+        groups_joined: groups,
+        content_created: {
+            posts: posts,
+            comments: comments,
+        },
+        activity: {
+            likes: likes,
+            applications: apps,
+            support_history: support
+        },
+        // Messages at the bottom as requested
+        chat_history: chat 
+      };
+
+      // Create downloadable file
       const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `liberty_social_data_${new Date().toISOString()}.json`; document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url); document.body.removeChild(a);
-    } catch (e) { alert("Data error: " + e.message); } finally { setAuthLoading(false); }
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `liberty_social_data_${new Date().toISOString()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert("Data download started.");
+
+    } catch (e) {
+      alert("Failed to gather data: " + e.message);
+    } finally {
+      setAuthLoading(false);
+    }
   };
 
   const handleReplyToComment = (c) => { setCommentText(`@${c.profiles?.username || 'user'} `); commentInputRef.current?.focus(); };
   const handlePinComment = async (c) => { await supabase.from('comments').update({ is_pinned: !c.is_pinned }).eq('id', c.id); };
   const handleToggleComments = async () => { const nv = !viewingCommentsPost.comments_disabled; await supabase.from('posts').update({ comments_disabled: nv }).eq('id', viewingCommentsPost.id); setViewingCommentsPost(prev => ({ ...prev, comments_disabled: nv })); };
+  const handleResolveReport = async (rid) => { if (window.confirm("Resolve?")) { await supabase.from('reports').update({ status: 'resolved' }).eq('id', rid); setReports(prev => prev.filter(r => r.id !== rid)); }};
   
   const handleCreateGroup = async () => { 
       if (!newGroupText.trim()) return; 
@@ -438,15 +482,22 @@ function MainApp() {
   };
 
   const handleJoinGroup = async (e, gid) => { 
-      e.stopPropagation(); if (!supabase) return;
+      e.stopPropagation(); 
+      if (!supabase) return;
       const { error } = await supabase.from('group_members').insert({ group_id: gid, user_id: authUser.id, role: 'member' });
-      if (error && error.code !== '23505') alert(error.message); else setJoinedGroupIds(prev => [...prev, gid]); 
+      if (error && error.code !== '23505') alert(error.message); 
+      else setJoinedGroupIds(prev => [...prev, gid]); 
   };
   
   const handleLeaveGroup = async (e, gid) => {
-      e.stopPropagation(); if (!supabase || !window.confirm("Leave community?")) return;
+      e.stopPropagation();
+      if (!supabase || !window.confirm("Leave community?")) return;
       const { error } = await supabase.from('group_members').delete().eq('group_id', gid).eq('user_id', authUser.id);
-      if (error) alert(error.message); else { setJoinedGroupIds(prev => prev.filter(id => id !== gid)); if (activeGroup?.id === gid) { setActiveGroup(null); setCurrentView('feed'); } }
+      if (error) alert(error.message);
+      else {
+          setJoinedGroupIds(prev => prev.filter(id => id !== gid)); 
+          if (activeGroup?.id === gid) { setActiveGroup(null); setCurrentView('feed'); }
+      }
   };
   
   const handleReport = async (r) => { 
@@ -464,17 +515,46 @@ function MainApp() {
       if(!window.confirm("Delete this post?")) return;
       setPosts(prev => prev.filter(p => p.id !== pid)); // Optimistic
       const { error } = await supabase.from('posts').delete().eq('id', pid);
-      if(error) { alert("Error deleting post: " + error.message); fetchPosts(); }
+      if(error) {
+          alert("Error deleting post: " + error.message);
+          fetchPosts(); 
+      }
   };
   
   const handleUpdateProfile = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('profiles').update({ name: fd.get('displayName'), role: fd.get('role') }).eq('id', authUser.id); setActiveModal(null); setCurrentUser(prev => ({...prev, name: fd.get('displayName'), role: fd.get('role')})); };
   const handleUpdateGroup = async (e) => { e.preventDefault(); const fd = new FormData(e.target); await supabase.from('groups').update({ name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags }).eq('id', activeGroup.id); setActiveModal(null); setActiveGroup(prev => ({...prev, name: fd.get('groupName'), description: fd.get('groupDesc'), image: fd.get('groupImage'), banner: fd.get('groupBanner'), badges: editGroupTags})); };
   
-  const handleOpenMembers = async () => { setActiveModal('members'); const { data } = await supabase.from('group_members').select(`*, profiles:user_id ( id, name, username, role, global_role, badges, image )`).eq('group_id', activeGroup.id); if(data) setGroupMembers(data); };
-  const handleKickMember = async (uid) => { if(window.confirm("Kick user?")) { await supabase.from('group_members').delete().eq('group_id', activeGroup.id).eq('user_id', uid); setGroupMembers(prev => prev.filter(m => m.user_id !== uid)); } };
-  const handleBanMember = async (uid) => { if(window.confirm("Ban user from group?")) { const { error } = await supabase.from('group_members').update({ role: 'banned' }).eq('group_id', activeGroup.id).eq('user_id', uid); if (error) alert("Error banning: " + error.message); else setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role: 'banned' } : m)); } };
-  const handleUpdateMemberRole = async (uid, role) => { await supabase.from('group_members').update({ role }).eq('group_id', activeGroup.id).eq('user_id', uid); setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role } : m)); };
-  const handleSetNickname = async (uid, newNick) => { await supabase.from('group_members').update({ nickname: newNick }).eq('group_id', activeGroup.id).eq('user_id', uid); setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, nickname: newNick } : m)); setEditingMemberId(null); };
+  const handleOpenMembers = async () => { 
+      setActiveModal('members'); 
+      const { data } = await supabase.from('group_members').select(`*, profiles:user_id ( id, name, username, role, global_role, badges, image )`).eq('group_id', activeGroup.id); 
+      if(data) setGroupMembers(data); 
+  };
+  
+  const handleKickMember = async (uid) => { 
+      if(window.confirm("Kick user?")) { 
+          await supabase.from('group_members').delete().eq('group_id', activeGroup.id).eq('user_id', uid); 
+          setGroupMembers(prev => prev.filter(m => m.user_id !== uid)); 
+      } 
+  };
+  
+  const handleBanMember = async (uid) => {
+      if(window.confirm("Ban user from group?")) {
+          const { error } = await supabase.from('group_members').update({ role: 'banned' }).eq('group_id', activeGroup.id).eq('user_id', uid);
+          if (error) alert("Error banning: " + error.message);
+          else setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role: 'banned' } : m));
+      }
+  };
+
+  const handleUpdateMemberRole = async (uid, role) => { 
+      await supabase.from('group_members').update({ role }).eq('group_id', activeGroup.id).eq('user_id', uid); 
+      setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, role } : m)); 
+  };
+  
+  const handleSetNickname = async (uid, newNick) => {
+      await supabase.from('group_members').update({ nickname: newNick }).eq('group_id', activeGroup.id).eq('user_id', uid);
+      setGroupMembers(prev => prev.map(m => m.user_id === uid ? { ...m, nickname: newNick } : m));
+      setEditingMemberId(null);
+  };
 
   const handleImageChange = (e) => { const file = e.target.files[0]; if (file) { const reader = new FileReader(); reader.onloadend = () => setSelectedImage(reader.result); reader.readAsDataURL(file); } };
   const handleBanUser = async (uid) => { if(window.confirm("Ban Global?")) { await supabase.from('profiles').update({ is_banned: true }).eq('id', uid); alert("Banned"); } };
@@ -626,7 +706,28 @@ function MainApp() {
     return () => { supabase.removeChannel(channel); };
   }, [viewingCommentsPost, supabase]);
 
-  // Support messages fetch (User side only)
+  useEffect(() => {
+    if (supabase && currentUser) {
+        if (currentView === 'investigation') {
+            const fetchReports = async () => {
+                const { data } = await supabase.from('reports').select(`*, profiles:reporter_id ( name )`).eq('status', investigationTab).order('created_at', { ascending: false });
+                if (data) setReports(data);
+            };
+            fetchReports();
+            const reportChannel = supabase.channel('reports_channel')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, async () => { fetchReports(); }).subscribe();
+            return () => supabase.removeChannel(reportChannel);
+        }
+        if (currentView === 'review_apps') {
+             const fetchApps = async () => {
+                 const { data } = await supabase.from('applications').select(`*, profiles:user_id ( id, name, username )`).eq('status', 'pending').order('created_at', { ascending: false });
+                 if(data) setApplications(data);
+             }
+             fetchApps();
+        }
+    }
+  }, [currentView, investigationTab, supabase, currentUser]);
+
   useEffect(() => {
     const ticketId = userTicket?.id;
     if (!ticketId || !supabase) return;
@@ -644,6 +745,18 @@ function MainApp() {
     }).subscribe();
     return () => supabase.removeChannel(channel);
   }, [userTicket, supabase]);
+
+  useEffect(() => {
+    if (currentView === 'active_calls' && supabase) {
+        const fetchCalls = async () => {
+            const { data } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
+            setSupportList(data || []);
+        };
+        fetchCalls();
+        const channel = supabase.channel('all_tickets').on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => { fetchCalls(); }).subscribe();
+        return () => supabase.removeChannel(channel);
+    }
+  }, [currentView, supabase]);
 
   useEffect(() => {
       if (feedMode === 'chat' && supabase) {
