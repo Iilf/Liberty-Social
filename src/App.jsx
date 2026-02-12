@@ -5,7 +5,7 @@ import {
   Flag, AlertTriangle, ArrowLeft, Settings, Compass, Mail, Key, Trash2, Crown, Ban, 
   Edit3, UserMinus, UserCog, UserPlus, Hash, Megaphone, CalendarDays, Pin, Check, 
   Star, BadgeCheck, ClipboardList, Send, LifeBuoy, Phone, Inbox, Clock, Hammer, Badge, 
-  FileCheck, FileWarning, Tag, AlertOctagon, Globe, LogIn, RefreshCw, Zap, Layout, Filter, MessageCircle, Download
+  FileCheck, FileWarning, Tag, AlertOctagon, Globe, LogIn, RefreshCw, Zap, Layout, Filter, MessageCircle, Download, Menu
 } from 'lucide-react';
 
 // --- CONFIGURATION ---
@@ -706,28 +706,7 @@ function MainApp() {
     return () => { supabase.removeChannel(channel); };
   }, [viewingCommentsPost, supabase]);
 
-  useEffect(() => {
-    if (supabase && currentUser) {
-        if (currentView === 'investigation') {
-            const fetchReports = async () => {
-                const { data } = await supabase.from('reports').select(`*, profiles:reporter_id ( name )`).eq('status', investigationTab).order('created_at', { ascending: false });
-                if (data) setReports(data);
-            };
-            fetchReports();
-            const reportChannel = supabase.channel('reports_channel')
-                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reports' }, async () => { fetchReports(); }).subscribe();
-            return () => supabase.removeChannel(reportChannel);
-        }
-        if (currentView === 'review_apps') {
-             const fetchApps = async () => {
-                 const { data } = await supabase.from('applications').select(`*, profiles:user_id ( id, name, username )`).eq('status', 'pending').order('created_at', { ascending: false });
-                 if(data) setApplications(data);
-             }
-             fetchApps();
-        }
-    }
-  }, [currentView, investigationTab, supabase, currentUser]);
-
+  // Support messages fetch (User side only)
   useEffect(() => {
     const ticketId = userTicket?.id;
     if (!ticketId || !supabase) return;
@@ -846,7 +825,7 @@ function MainApp() {
   return (
     <div className="flex h-screen bg-[#0a0a0c] text-slate-100 font-sans overflow-hidden text-sm sm:text-base">
       {/* 1. RAIL */}
-      <div className="flex flex-col items-center w-[72px] bg-[#050507]/95 backdrop-blur-xl border-r border-slate-800/60 py-4 gap-3 shrink-0 z-20">
+      <div className="hidden md:flex flex-col items-center w-[72px] bg-[#050507]/95 backdrop-blur-xl border-r border-slate-800/60 py-4 gap-3 shrink-0 z-20">
         <RailItem active={currentView === 'feed'} onClick={goHome}><Compass size={24} /></RailItem>
         <div className="w-8 h-[2px] bg-slate-800 rounded-full mx-auto my-1"></div>
         <div className="flex-1 flex flex-col gap-3 w-full items-center overflow-y-auto scrollbar-hide">
@@ -864,20 +843,19 @@ function MainApp() {
 
       {/* 2. SIDEBAR */}
       <nav className="hidden lg:flex flex-col w-60 bg-[#0a0a0c]/90 backdrop-blur-xl border-r border-slate-800/60 p-4 space-y-6">
-        <div className="flex items-center space-x-2 px-2 pt-1"><h1 className="text-lg font-black italic">LIBERTY<span className="text-blue-500 text-xs block -mt-1 not-italic">Social BETA</span></h1></div>
+        <div className="flex items-center space-x-2 px-2 pt-1"><h1 className="text-lg font-black italic">LIBERTY<span className="text-blue-500 text-xs block -mt-1 not-italic">Social</span></h1></div>
         <div className="space-y-1">
           <NavItem icon={<Navigation size={18}/>} label="The Dispatch" active={currentView === 'feed'} onClick={goHome} />
           <NavItem icon={<Users size={18}/>} label="Communities" active={currentView === 'groups'} onClick={() => setCurrentView('groups')} />
           <NavItem icon={<User size={18}/>} label="Profile" active={currentView === 'profile'} onClick={goProfile} />
           <NavItem icon={<Inbox size={18}/>} label="Applications" active={currentView === 'applications'} onClick={() => setCurrentView('applications')} />
           <NavItem icon={<Settings size={18}/>} label="Settings" onClick={() => { goProfile(); setActiveModal('settings'); }} />
-          {/* STAFF AREA REMOVED AS REQUESTED */}
         </div>
         <div className="mt-auto pt-4 border-t border-slate-800"><button onClick={() => setIsSupportOpen(!isSupportOpen)} className="flex items-center gap-3 px-3 py-3 w-full rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"><LifeBuoy size={18}/> <span className="text-sm font-semibold">Get Help</span></button></div>
       </nav>
 
       {/* 3. MAIN */}
-      <main ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-hide border-r border-slate-800/60 bg-[#0a0a0c] relative">
+      <main ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-hide border-r border-slate-800/60 bg-[#0a0a0c] relative pb-20 md:pb-0">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-[#0a0a0c]/80 backdrop-blur-xl border-b border-slate-800/60 px-6 py-4 flex items-center justify-between">
             <h2 className="text-lg font-bold truncate"> {currentView === 'feed' ? 'Dispatch Feed' : currentView === 'groups' ? 'Explore Communities' : currentView === 'investigation' ? 'Investigation Unit' : currentView === 'active_calls' ? 'Active Support Calls' : currentView === 'review_apps' ? 'Review Applications' : currentView === 'applications' ? 'Applications' : activeGroup?.name || 'Dashboard'} </h2>
@@ -1074,7 +1052,25 @@ function MainApp() {
             </div>
         )}
 
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">
+        {/* BOTTOM NAV BAR (Mobile Only) */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050507]/95 backdrop-blur-xl border-t border-slate-800 pb-safe z-50">
+            <div className="flex justify-around items-center h-16">
+                <button onClick={goHome} className={`p-2 rounded-xl transition-colors ${currentView === 'feed' ? 'text-blue-500' : 'text-slate-500'}`}>
+                    <Compass size={24} />
+                </button>
+                <button onClick={() => { setCurrentView('groups'); setActiveGroup(null); }} className={`p-2 rounded-xl transition-colors ${currentView === 'groups' ? 'text-blue-500' : 'text-slate-500'}`}>
+                    <Users size={24} />
+                </button>
+                <button onClick={() => setCurrentView('applications')} className={`p-2 rounded-xl transition-colors ${currentView === 'applications' ? 'text-blue-500' : 'text-slate-500'}`}>
+                    <Inbox size={24} />
+                </button>
+                <button onClick={goProfile} className={`p-2 rounded-xl transition-colors ${currentView === 'profile' ? 'text-blue-500' : 'text-slate-500'}`}>
+                    <User size={24} />
+                </button>
+            </div>
+        </div>
+
+        <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 flex flex-col items-end gap-4">
              {isSupportOpen && (
                  <div className="bg-slate-900 border border-slate-800 rounded-2xl w-80 h-96 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
                      <div className="bg-blue-600 p-4 flex justify-between items-center text-white"><h4 className="font-bold flex items-center gap-2"><LifeBuoy size={18}/> Support Chat</h4><button onClick={() => setIsSupportOpen(false)}><X size={18}/></button></div>
