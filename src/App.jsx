@@ -15,8 +15,8 @@ import {
 // We keep the hardcoded strings as fallbacks so this preview continues to function,
 // but in your Cloudflare dashboard, the VITE_ variables will take precedence.
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "";
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "";
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || " ";
+const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || " ";
 
 // --- CONSTANTS ---
 const TAGS = [
