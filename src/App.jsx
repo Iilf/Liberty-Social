@@ -9,12 +9,16 @@ import {
   ShieldAlert, Activity, CheckCircle, XCircle, Eye
 } from 'lucide-react';
 
-try {
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-        SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL;
-        SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || SUPABASE_KEY;
-    }
-} catch (e) {}
+const getEnvVar = (name) => {
+  const value = process.env[name];
+  if (!value) {
+    console.warn(`Environment variable ${name} is missing!`);
+  }
+  return value;
+};
+
+const SUPABASE_URL = getEnvVar('REACT_APP_SUPABASE_URL');
+const SUPABASE_KEY = getEnvVar('REACT_APP_SUPABASE_ANON_KEY');
 
 // --- CONSTANTS ---
 const TAGS = [
