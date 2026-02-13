@@ -9,16 +9,17 @@ import {
 } from 'lucide-react';
 import ModerationDashboard from './app2.jsx';
 
-// --- CONFIGURATION ---
-let SUPABASE_URL = "https://wcavpryumlohjccxiohq.supabase.co";
-let SUPABASE_KEY = "sb_publishable_EoFH2MIrf4Xc1cJJaiAlHg_ct72t-ru";
+import { createClient } from '@supabase/supabase-js';
 
-try {
-    if (typeof import.meta !== 'undefined' && import.meta.env) {
-        SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || SUPABASE_URL;
-        SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || SUPABASE_KEY;
-    }
-} catch (e) {}
+// This pulls the variables that Cloudflare "injected" during the build
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("Missing Supabase Environment Variables!");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // --- CONSTANTS ---
 const TAGS = [
