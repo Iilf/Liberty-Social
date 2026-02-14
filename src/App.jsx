@@ -9,15 +9,10 @@ import {
   ShieldAlert, Activity, CheckCircle, XCircle, Eye
 } from 'lucide-react';
 
-// This pulls the variables that Cloudflare "injected" during the build
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Missing Supabase Environment Variables!");
-}
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// --- CONFIGURATION ---
+// Using hardcoded values to prevent build errors with import.meta in this environment
+const SUPABASE_URL = "https://wcavpryumlohjccxiohq.supabase.co";
+const SUPABASE_KEY = "sb_publishable_EoFH2MIrf4Xc1cJJaiAlHg_ct72t-ru";
 
 // --- CONSTANTS ---
 const TAGS = [
@@ -75,6 +70,7 @@ const DashboardNavItem = ({ icon, label, active, onClick, badge }) => (
 const RenderNameWithRole = ({ profile, nickname }) => {
     if (!profile) return <span className="text-slate-400">Unknown</span>;
     
+    // Use nickname if available (for group context), otherwise profile name
     const displayName = nickname || profile.name;
     const role = profile.role;
     const globalRole = profile.global_role;
@@ -118,6 +114,7 @@ const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, cur
 
     return (
         <div className={`${cardStyle} border rounded-2xl p-5 mb-4 transition-all shadow-sm relative overflow-hidden`}>
+            {/* Glossy overlay for special roles */}
             {(globalRole === 'owner' || globalRole === 'developer') && <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>}
             
             <div className="flex gap-4 relative z-10">
@@ -754,17 +751,33 @@ function MainApp() {
   useEffect(() => {
     if (!authUser || !supabase) return;
     const fetchData = async () => {
-      let { data: profile } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
-      if (!profile) { const { data } = await supabase.from('profiles').insert({ id: authUser.id, name: authUser.user_metadata?.display_name || "User", username: authUser.user_metadata?.username || `user_${authUser.id.substring(0,6)}`, role: authUser.user_metadata?.role || "Civilian" }).select().single(); profile = data; }
-      setCurrentUser(profile);
-      const { data: g } = await supabase.from('groups').select('*').order('created_at', { ascending: false }); setGroups(g);
-      const { data: m } = await supabase.from('group_members').select('group_id').eq('user_id', authUser.id); setJoinedGroupIds(m.map(x=>x.group_id));
-      const { data: n } = await supabase.from('notifications').select(`*, profiles:actor_id(name)`).eq('user_id', authUser.id).limit(20); setNotifications(n);
-      const { data: t } = await supabase.from('support_tickets').select('*').eq('user_id', authUser.id).limit(1); if(t && t.length > 0) setUserTicket(t[0]);
-      
-      const { data: p } = await supabase.from('posts').select(`*, profiles:uid (id,name,username,role,global_role,badges,image)`).is('group_id', null).order('created_at', {ascending:false});
-      setPosts(p);
-      setAuthLoading(false);
+      try {
+        let { data: profile } = await supabase.from('profiles').select('*').eq('id', authUser.id).single();
+        if (!profile) { 
+          const { data } = await supabase.from('profiles').insert({ id: authUser.id, name: authUser.user_metadata?.display_name || "User", username: authUser.user_metadata?.username || `user_${authUser.id.substring(0,6)}`, role: authUser.user_metadata?.role || "Civilian" }).select().single(); 
+          profile = data; 
+        }
+        setCurrentUser(profile);
+        
+        const { data: g } = await supabase.from('groups').select('*').order('created_at', { ascending: false }); 
+        setGroups(g || []); // Default to empty array if null
+        
+        const { data: m } = await supabase.from('group_members').select('group_id').eq('user_id', authUser.id); 
+        setJoinedGroupIds((m || []).map(x=>x.group_id)); // Safe map
+        
+        const { data: n } = await supabase.from('notifications').select(`*, profiles:actor_id(name)`).eq('user_id', authUser.id).limit(20); 
+        setNotifications(n || []); // Default to empty array
+        
+        const { data: t } = await supabase.from('support_tickets').select('*').eq('user_id', authUser.id).limit(1); 
+        if(t && t.length > 0) setUserTicket(t[0]);
+        
+        const { data: p } = await supabase.from('posts').select(`*, profiles:uid (id,name,username,role,global_role,badges,image)`).is('group_id', null).order('created_at', {ascending:false});
+        setPosts(p || []); // Default to empty array
+      } catch (err) {
+        console.error("Fetch Error:", err);
+      } finally {
+        setAuthLoading(false);
+      }
     };
     fetchData();
   }, [authUser, supabase]);
@@ -793,7 +806,7 @@ function MainApp() {
     if(!userTicket || !supabase) return;
     const fetchMsgs = async () => {
         const {data} = await supabase.from('support_messages').select('*, profiles:sender_id(name, role, global_role)').eq('ticket_id', userTicket.id).order('created_at', {ascending:true});
-        setSupportMessages(data);
+        setSupportMessages(data || []); // Safe default
         if(supportScrollRef.current) supportScrollRef.current.scrollTop = supportScrollRef.current.scrollHeight;
     };
     fetchMsgs();
@@ -851,6 +864,18 @@ function MainApp() {
   }, [userTicket, supabase]);
 
   useEffect(() => {
+    if (currentView === 'active_calls' && supabase) {
+        const fetchCalls = async () => {
+            const { data } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
+            setSupportList(data || []);
+        };
+        fetchCalls();
+        const channel = supabase.channel('all_tickets').on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => { fetchCalls(); }).subscribe();
+        return () => supabase.removeChannel(channel);
+    }
+  }, [currentView, supabase]);
+
+  useEffect(() => {
       if (feedMode === 'chat' && supabase) {
           const fetchChat = async () => {
               const { data } = await supabase.from('global_chat').select(`*, profiles:user_id ( id, name, username, role, global_role, badges )`).order('created_at', { ascending: false }).limit(50);
@@ -905,11 +930,20 @@ function MainApp() {
         </div>
       </div>
   );
+  
+  // FILTER GROUPS LOGIC
+  const filteredGroups = (groups || []).filter(g => {
+      if (currentView !== 'groups') return true;
+      const matchesSearch = (g.name || "").toLowerCase().includes(groupSearchQuery.toLowerCase());
+      const badges = Array.isArray(g.badges) ? g.badges : [];
+      const matchesTag = groupFilterTag === 'All' || badges.includes(groupFilterTag);
+      return matchesSearch && matchesTag;
+  });
 
   return (
     <div className="flex h-screen bg-[#0a0a0c] text-slate-100 font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <nav className="hidden md:flex flex-col w-64 bg-[#0a0a0c] border-r border-slate-800 p-4">
+      <nav className="hidden md:flex flex-col w-64 bg-[#050507] border-r border-slate-800 p-4">
           <h1 className="text-xl font-black italic px-4 mb-6">LIBERTY</h1>
           <div className="space-y-1">
              <NavItem icon={<Compass size={20}/>} label="Feed" active={currentView === 'feed'} onClick={() => setCurrentView('feed')} />
