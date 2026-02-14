@@ -9,16 +9,17 @@ import {
   ShieldAlert, Activity, CheckCircle, XCircle, Eye
 } from 'lucide-react';
 
-const getEnvVar = (name) => {
-  const value = process.env[name];
-  if (!value) {
-    console.warn(`Environment variable ${name} is missing!`);
-  }
-  return value;
-};
+import { createClient } from '@supabase/supabase-js';
 
-const SUPABASE_URL = getEnvVar('REACT_APP_SUPABASE_URL');
-const SUPABASE_KEY = getEnvVar('REACT_APP_SUPABASE_ANON_KEY');
+// This pulls the variables that Cloudflare "injected" during the build
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error("Missing Supabase Environment Variables!");
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // --- CONSTANTS ---
 const TAGS = [
@@ -76,7 +77,6 @@ const DashboardNavItem = ({ icon, label, active, onClick, badge }) => (
 const RenderNameWithRole = ({ profile, nickname }) => {
     if (!profile) return <span className="text-slate-400">Unknown</span>;
     
-    // Use nickname if available (for group context), otherwise profile name
     const displayName = nickname || profile.name;
     const role = profile.role;
     const globalRole = profile.global_role;
@@ -106,8 +106,6 @@ const RenderNameWithRole = ({ profile, nickname }) => {
 
 const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, currentUser, groupRole, onViewProfile }) => {
     const globalRole = post.profiles?.global_role;
-    
-    // Highlight Logic
     let cardStyle = "bg-slate-900/40 border-slate-800/60";
     if (globalRole === 'owner') cardStyle = "bg-blue-950/30 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.1)]";
     else if (globalRole === 'developer') cardStyle = "bg-green-950/20 border-green-500/30 shadow-[0_0_15px_rgba(16,185,129,0.1)]";
@@ -122,7 +120,6 @@ const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, cur
 
     return (
         <div className={`${cardStyle} border rounded-2xl p-5 mb-4 transition-all shadow-sm relative overflow-hidden`}>
-            {/* Glossy overlay for special roles */}
             {(globalRole === 'owner' || globalRole === 'developer') && <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent pointer-events-none"></div>}
             
             <div className="flex gap-4 relative z-10">
@@ -167,15 +164,12 @@ const PostCard = ({ post, onReport, onDelete, onLike, onBan, onViewComments, cur
     );
 };
 
-// --- MODERATION DASHBOARD COMPONENT (THEMED) ---
+// --- MODERATION DASHBOARD COMPONENT (EMBEDDED) ---
 function ModerationDashboard({ supabase, sessionUser, profile, onExit }) {
   const [currentView, setCurrentView] = useState('dashboard');
-  
-  // Data States
   const [reports, setReports] = useState([]);
   const [reportFilter, setReportFilter] = useState('pending'); 
   const [inspectedReport, setInspectReport] = useState(null); 
-  
   const [applications, setApplications] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [activeTicket, setActiveTicket] = useState(null);
@@ -183,166 +177,82 @@ function ModerationDashboard({ supabase, sessionUser, profile, onExit }) {
   const [replyText, setReplyText] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dataError, setDataError] = useState(null);
-  
-  // Staff Management (Owner)
   const [staffSearchQuery, setStaffSearchQuery] = useState("");
   const [staffResults, setStaffResults] = useState([]);
-
   const messagesEndRef = useRef(null);
 
-  // 4. MAIN DATA LOADING
   const loadData = async () => {
     if (!supabase || !profile) return;
     setIsRefreshing(true);
     setDataError(null);
     try {
-        // Reports
-        const { data: reps, error: repErr } = await supabase.from('reports')
-            .select(`*, profiles:reporter_id (name, username)`)
-            .eq('status', reportFilter)
-            .order('created_at', { ascending: false });
+        const { data: reps, error: repErr } = await supabase.from('reports').select(`*, profiles:reporter_id (name, username)`).eq('status', reportFilter).order('created_at', { ascending: false });
         if (repErr) throw repErr;
         setReports(reps || []);
 
-        // Applications
         let appQuery = supabase.from('applications').select(`*, profiles:user_id (name, username, badges, global_role)`).eq('status', 'pending').order('created_at', { ascending: false });
-        if (profile.global_role !== 'owner') {
-            appQuery = appQuery.eq('type', 'verification');
-        }
+        if (profile.global_role !== 'owner') { appQuery = appQuery.eq('type', 'verification'); }
         const { data: apps, error: appErr } = await appQuery;
         if (appErr) throw appErr;
         setApplications(apps || []);
 
-        // Tickets
         const { data: tix, error: tixErr } = await supabase.from('support_tickets').select('*').neq('status', 'closed').order('created_at', { ascending: false });
         if (tixErr) throw tixErr;
         setTickets(tix || []);
-
-    } catch (err) {
-        console.error("Data Load Error:", err);
-        setDataError(err.message);
-    } finally {
-        setIsRefreshing(false);
-    }
+    } catch (err) { console.error("Data Load Error:", err); setDataError(err.message); } finally { setIsRefreshing(false); }
   };
 
   useEffect(() => {
     loadData();
-    const sub = supabase.channel('moderation_room')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, loadData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, loadData)
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, loadData)
-        .subscribe();
+    const sub = supabase.channel('moderation_room').on('postgres_changes', { event: '*', schema: 'public', table: 'reports' }, loadData).on('postgres_changes', { event: '*', schema: 'public', table: 'applications' }, loadData).on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, loadData).subscribe();
     return () => supabase.removeChannel(sub);
   }, [profile, reportFilter]); 
 
-  // 5. CHAT LOGIC
   useEffect(() => {
       if (!activeTicket || !supabase) return;
       const loadMessages = async () => {
           const { data } = await supabase.from('support_messages').select(`*, profiles:sender_id (name, global_role)`).eq('ticket_id', activeTicket.id).order('created_at', { ascending: true });
-          if (data) {
-              setMessages(data);
-              setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-          }
+          if (data) { setMessages(data); setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100); }
       };
       loadMessages();
-
-      const msgSub = supabase.channel(`ticket_chat:${activeTicket.id}`)
-          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `ticket_id=eq.${activeTicket.id}` }, async (payload) => {
-              const { data: sender } = await supabase.from('profiles').select('name, global_role').eq('id', payload.new.sender_id).single();
-              setMessages(prev => [...prev, { ...payload.new, profiles: sender }]);
-              setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
-          }).subscribe();
-
+      const msgSub = supabase.channel(`ticket_chat:${activeTicket.id}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_messages', filter: `ticket_id=eq.${activeTicket.id}` }, async (payload) => {
+          const { data: sender } = await supabase.from('profiles').select('name, global_role').eq('id', payload.new.sender_id).single();
+          setMessages(prev => [...prev, { ...payload.new, profiles: sender }]);
+          setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+      }).subscribe();
       return () => supabase.removeChannel(msgSub);
   }, [activeTicket]);
 
-  // HANDLERS
-  const handleUpdateReport = async (id, newStatus) => {
-      if(!window.confirm(`Mark report as ${newStatus}?`)) return;
-      await supabase.from('reports').update({ status: newStatus }).eq('id', id);
-      setReports(prev => prev.filter(r => r.id !== id));
-      setInspectReport(null);
-  };
-
+  const handleUpdateReport = async (id, newStatus) => { if(!window.confirm(`Mark report as ${newStatus}?`)) return; await supabase.from('reports').update({ status: newStatus }).eq('id', id); setReports(prev => prev.filter(r => r.id !== id)); setInspectReport(null); };
   const handleInspectReport = async (report) => {
-      let content = null;
-      let authorId = null;
-      let authorName = "Unknown";
+      let content = null; let authorId = null; let authorName = "Unknown";
       try {
-          if (report.target_type === 'post') {
-             const { data } = await supabase.from('posts').select('content, uid, profiles(name, username)').eq('id', report.target_id).single();
-             if(data) { content = data.content; authorId = data.uid; authorName = data.profiles?.username; }
-          } else if (report.target_type === 'comment') {
-             const { data } = await supabase.from('comments').select('content, user_id, profiles(name, username)').eq('id', report.target_id).single();
-             if(data) { content = data.content; authorId = data.user_id; authorName = data.profiles?.username; }
-          } else if (report.target_type === 'user') {
-             const { data } = await supabase.from('profiles').select('name, username').eq('id', report.target_id).single();
-             if(data) { content = "User Profile Report"; authorId = report.target_id; authorName = data.username; }
-          }
+          if (report.target_type === 'post') { const { data } = await supabase.from('posts').select('content, uid, profiles(name, username)').eq('id', report.target_id).single(); if(data) { content = data.content; authorId = data.uid; authorName = data.profiles?.username; } } 
+          else if (report.target_type === 'comment') { const { data } = await supabase.from('comments').select('content, user_id, profiles(name, username)').eq('id', report.target_id).single(); if(data) { content = data.content; authorId = data.user_id; authorName = data.profiles?.username; } } 
+          else if (report.target_type === 'user') { const { data } = await supabase.from('profiles').select('name, username').eq('id', report.target_id).single(); if(data) { content = "User Profile Report"; authorId = report.target_id; authorName = data.username; } }
       } catch (e) { console.error(e); }
       setInspectReport({ ...report, content_snapshot: content, target_author_id: authorId, target_author_name: authorName });
   };
-
-  const handleWarnUser = async (userId) => {
-      if (!userId) return;
-      if (!window.confirm("Issue a formal warning to this user?")) return;
-      const { data } = await supabase.from('profiles').select('warning_count').eq('id', userId).single();
-      const newCount = (data?.warning_count || 0) + 1;
-      const { error } = await supabase.from('profiles').update({ warning_count: newCount }).eq('id', userId);
-      if (error) alert("Failed: " + error.message);
-      else alert(`User warned. Total warnings: ${newCount}`);
-  };
-
+  const handleWarnUser = async (userId) => { if (!userId) return; if (!window.confirm("Issue a formal warning to this user?")) return; const { data } = await supabase.from('profiles').select('warning_count').eq('id', userId).single(); const newCount = (data?.warning_count || 0) + 1; const { error } = await supabase.from('profiles').update({ warning_count: newCount }).eq('id', userId); if (error) alert("Failed: " + error.message); else alert(`User warned. Total warnings: ${newCount}`); };
   const handleReviewApplication = async (app, action) => {
       if (action === 'approve') {
-          if (app.type === 'verification') {
-              const badges = app.profiles?.badges || [];
-              if (!badges.includes('influencer')) await supabase.from('profiles').update({ badges: [...badges, 'influencer'] }).eq('id', app.user_id);
-          } else if (app.type === 'staff' && profile.global_role === 'owner') {
-              await supabase.from('profiles').update({ global_role: 'moderator' }).eq('id', app.user_id);
-          }
+          if (app.type === 'verification') { const badges = app.profiles?.badges || []; if (!badges.includes('influencer')) await supabase.from('profiles').update({ badges: [...badges, 'influencer'] }).eq('id', app.user_id); } 
+          else if (app.type === 'staff' && profile.global_role === 'owner') { await supabase.from('profiles').update({ global_role: 'moderator' }).eq('id', app.user_id); }
       }
       await supabase.from('applications').update({ status: action === 'approve' ? 'approved' : 'rejected' }).eq('id', app.id);
       setApplications(prev => prev.filter(a => a.id !== app.id));
   };
-
-  const handleSendReply = async () => {
-      if (!replyText.trim() || !activeTicket) return;
-      await supabase.from('support_messages').insert({ ticket_id: activeTicket.id, sender_id: sessionUser.id, content: replyText });
-      setReplyText("");
-  };
-
-  const handleCloseTicket = async () => {
-      if (!activeTicket || !window.confirm("Close this ticket?")) return;
-      await supabase.from('support_tickets').update({ status: 'closed' }).eq('id', activeTicket.id);
-      setTickets(prev => prev.filter(t => t.id !== activeTicket.id));
-      setActiveTicket(null);
-  };
-
-  const handleSearchUser = async () => {
-      if (!staffSearchQuery) return;
-      const { data } = await supabase.from('profiles').select('*').ilike('username', `%${staffSearchQuery}%`).limit(10);
-      setStaffResults(data || []);
-  };
-
-  const handleUpdateRole = async (userId, newRole) => {
-      if (!window.confirm(`Change role to ${newRole || 'Civilian'}?`)) return;
-      await supabase.from('profiles').update({ global_role: newRole }).eq('id', userId);
-      setStaffResults(prev => prev.map(u => u.id === userId ? { ...u, global_role: newRole } : u));
-  };
+  const handleSendReply = async () => { if (!replyText.trim() || !activeTicket) return; await supabase.from('support_messages').insert({ ticket_id: activeTicket.id, sender_id: sessionUser.id, content: replyText }); setReplyText(""); };
+  const handleCloseTicket = async () => { if (!activeTicket || !window.confirm("Close this ticket?")) return; await supabase.from('support_tickets').update({ status: 'closed' }).eq('id', activeTicket.id); setTickets(prev => prev.filter(t => t.id !== activeTicket.id)); setActiveTicket(null); };
+  const handleSearchUser = async () => { if (!staffSearchQuery) return; const { data } = await supabase.from('profiles').select('*').ilike('username', `%${staffSearchQuery}%`).limit(10); setStaffResults(data || []); };
+  const handleUpdateRole = async (userId, newRole) => { if (!window.confirm(`Change role to ${newRole || 'Civilian'}?`)) return; await supabase.from('profiles').update({ global_role: newRole }).eq('id', userId); setStaffResults(prev => prev.map(u => u.id === userId ? { ...u, global_role: newRole } : u)); };
 
   const isOwner = profile?.global_role === 'owner';
 
   return (
       <div className="flex h-screen bg-[#0a0a0c] text-slate-100 font-sans overflow-hidden">
-          {/* SIDEBAR */}
           <div className="w-64 bg-[#0a0a0c] border-r border-slate-800 flex flex-col">
-              <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-                  <ShieldAlert className="w-8 h-8 text-blue-500" />
-                  <div><h1 className="font-black text-lg tracking-tight">COMMAND</h1><p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold -mt-1">Terminal</p></div>
-              </div>
+              <div className="p-6 border-b border-slate-800 flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-blue-500" /><div><h1 className="font-black text-lg tracking-tight">COMMAND</h1><p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold -mt-1">Terminal</p></div></div>
               <div className="flex-1 p-4 flex flex-col gap-2 overflow-y-auto">
                   <DashboardNavItem icon={<Activity size={18} />} label="Dashboard" active={currentView === 'dashboard'} onClick={() => setCurrentView('dashboard')} />
                   <DashboardNavItem icon={<Flag size={18} />} label="Investigations" active={currentView === 'reports'} onClick={() => setCurrentView('reports')} badge={reports.length} />
@@ -350,21 +260,11 @@ function ModerationDashboard({ supabase, sessionUser, profile, onExit }) {
                   <DashboardNavItem icon={<MessageSquare size={18} />} label="Active Calls" active={currentView === 'support'} onClick={() => setCurrentView('support')} badge={tickets.length} />
                   {isOwner && <div className="mt-6"><p className="text-[10px] font-bold uppercase text-slate-500 px-4 mb-2">Owner Controls</p><DashboardNavItem icon={<Users size={18} />} label="Manage Staff" active={currentView === 'staff'} onClick={() => setCurrentView('staff')} /></div>}
               </div>
-              <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between">
-                  <div className="min-w-0"><p className="text-sm font-bold text-white truncate">{profile.name}</p><RoleBadge role={profile.global_role} /></div>
-                  <button onClick={onExit} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><ArrowLeft size={16}/> Exit</button>
-              </div>
+              <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex items-center justify-between"><div className="min-w-0"><p className="text-sm font-bold text-white truncate">{profile.name}</p><RoleBadge role={profile.global_role} /></div><button onClick={onExit} className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><ArrowLeft size={16}/> Exit</button></div>
           </div>
-
-          {/* CONTENT */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-              <div className="h-16 border-b border-slate-800 bg-slate-900/50 flex items-center px-8 justify-between shrink-0">
-                  <h2 className="text-lg font-bold capitalize">{currentView.replace('_', ' ')}</h2>
-                  <button onClick={loadData} disabled={isRefreshing} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 px-3 py-1.5 rounded-lg transition-colors"><RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""}/> Refresh Data</button>
-              </div>
-
+              <div className="h-16 border-b border-slate-800 bg-slate-900/50 flex items-center px-8 justify-between shrink-0"><h2 className="text-lg font-bold capitalize">{currentView.replace('_', ' ')}</h2><button onClick={loadData} disabled={isRefreshing} className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-white bg-slate-800 px-3 py-1.5 rounded-lg transition-colors"><RefreshCw size={14} className={isRefreshing ? "animate-spin" : ""}/> Refresh Data</button></div>
               {dataError && <div className="m-8 p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl mb-0">Error loading data: {dataError}</div>}
-
               <div className="flex-1 overflow-y-auto p-8 relative">
                   {currentView === 'dashboard' && (
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -373,76 +273,33 @@ function ModerationDashboard({ supabase, sessionUser, profile, onExit }) {
                           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex items-center gap-4"><div className="bg-green-500/10 p-4 rounded-xl text-green-500"><MessageSquare size={24}/></div><div><p className="text-slate-400 text-sm font-semibold uppercase tracking-wider">Tickets</p><p className="text-3xl font-black text-white">{tickets.length}</p></div></div>
                       </div>
                   )}
-
                   {currentView === 'reports' && (
                       <div className="max-w-4xl mx-auto space-y-6">
-                          <div className="flex gap-2 border-b border-slate-800 pb-4">
-                              {['pending', 'resolved', 'dismissed'].map(s => (
-                                  <button key={s} onClick={() => setReportFilter(s)} className={`px-4 py-2 rounded-lg text-sm font-bold capitalize transition-colors ${reportFilter === s ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800'}`}>{s}</button>
-                              ))}
-                          </div>
-
+                          <div className="flex gap-2 border-b border-slate-800 pb-4">{['pending', 'resolved', 'dismissed'].map(s => (<button key={s} onClick={() => setReportFilter(s)} className={`px-4 py-2 rounded-lg text-sm font-bold capitalize transition-colors ${reportFilter === s ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-white hover:bg-slate-800'}`}>{s}</button>))}</div>
                           {reports.length === 0 ? <p className="text-center text-slate-500 py-10">No reports found in {reportFilter}.</p> : reports.map(r => (
                               <div key={r.id} className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
                                   <div className="p-5 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-                                      <div>
-                                          <div className="flex items-center gap-2 mb-2"><span className="bg-red-500/20 text-red-400 text-xs px-2 py-1 rounded font-bold uppercase border border-red-500/30">Target: {r.target_type}</span><span className="text-slate-400 text-sm">Reported by: <span className="text-white">@{r.profiles?.username || 'unknown'}</span></span></div>
-                                          <p className="text-slate-300 font-medium">Reason: {r.reason}</p>
-                                          <p className="text-xs text-slate-500 mt-1 font-mono">ID: {r.target_id}</p>
-                                      </div>
-                                      <div className="flex items-center gap-2">
-                                          {r.status === 'pending' && (
-                                              <>
-                                                  <button onClick={() => handleInspectReport(r)} className="bg-slate-800 hover:bg-blue-600/20 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 text-slate-300 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Eye size={14}/> Inspect</button>
-                                                  <button onClick={() => handleUpdateReport(r.id, 'resolved')} className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/30 px-4 py-2 rounded-lg text-xs font-bold">Resolve</button>
-                                                  <button onClick={() => handleUpdateReport(r.id, 'dismissed')} className="bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 px-4 py-2 rounded-lg text-xs font-bold">Dismiss</button>
-                                              </>
-                                          )}
-                                          {r.status !== 'pending' && <span className="text-xs uppercase font-bold text-slate-500 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">{r.status}</span>}
-                                      </div>
+                                      <div><div className="flex items-center gap-2 mb-2"><span className="bg-red-500/20 text-red-400 text-xs px-2 py-1 rounded font-bold uppercase border border-red-500/30">Target: {r.target_type}</span><span className="text-slate-400 text-sm">Reported by: <span className="text-white">@{r.profiles?.username || 'unknown'}</span></span></div><p className="text-slate-300 font-medium">Reason: {r.reason}</p><p className="text-xs text-slate-500 mt-1 font-mono">ID: {r.target_id}</p></div>
+                                      <div className="flex items-center gap-2">{r.status === 'pending' && (<><button onClick={() => handleInspectReport(r)} className="bg-slate-800 hover:bg-blue-600/20 hover:text-blue-400 border border-slate-700 hover:border-blue-500/50 text-slate-300 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2"><Eye size={14}/> Inspect</button><button onClick={() => handleUpdateReport(r.id, 'resolved')} className="bg-green-500/10 hover:bg-green-500/20 text-green-500 border border-green-500/30 px-4 py-2 rounded-lg text-xs font-bold">Resolve</button><button onClick={() => handleUpdateReport(r.id, 'dismissed')} className="bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 px-4 py-2 rounded-lg text-xs font-bold">Dismiss</button></>)}{r.status !== 'pending' && <span className="text-xs uppercase font-bold text-slate-500 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">{r.status}</span>}</div>
                                   </div>
-                                  
-                                  {/* Inspection View */}
-                                  {inspectedReport?.id === r.id && (
-                                      <div className="bg-slate-950 border-t border-slate-800 p-5 animate-in slide-in-from-top-2">
-                                          <h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Content Snapshot</h4>
-                                          <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-sm text-slate-300 mb-4 whitespace-pre-wrap">{inspectedReport.content_snapshot || "Content not found or deleted."}</div>
-                                          <div className="flex gap-3 pt-2 border-t border-slate-800">
-                                              <button onClick={() => handleWarnUser(inspectedReport.target_author_id)} disabled={!inspectedReport.target_author_id} className="flex-1 bg-yellow-900/20 hover:bg-yellow-900/40 text-yellow-500 border border-yellow-900/50 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><AlertTriangle size={14}/> Warn Accused (@{inspectedReport.target_author_name})</button>
-                                              <button onClick={() => handleWarnUser(r.reporter_id)} className="flex-1 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/50 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><AlertOctagon size={14}/> Warn Reporter (False Report)</button>
-                                          </div>
-                                      </div>
-                                  )}
+                                  {inspectedReport?.id === r.id && (<div className="bg-slate-950 border-t border-slate-800 p-5 animate-in slide-in-from-top-2"><h4 className="text-xs font-bold uppercase text-slate-500 mb-2">Content Snapshot</h4><div className="bg-slate-900 p-4 rounded-xl border border-slate-800 text-sm text-slate-300 mb-4 whitespace-pre-wrap">{inspectedReport.content_snapshot || "Content not found or deleted."}</div><div className="flex gap-3 pt-2 border-t border-slate-800"><button onClick={() => handleWarnUser(inspectedReport.target_author_id)} disabled={!inspectedReport.target_author_id} className="flex-1 bg-yellow-900/20 hover:bg-yellow-900/40 text-yellow-500 border border-yellow-900/50 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><AlertTriangle size={14}/> Warn Accused (@{inspectedReport.target_author_name})</button><button onClick={() => handleWarnUser(r.reporter_id)} className="flex-1 bg-red-900/20 hover:bg-red-900/40 text-red-500 border border-red-900/50 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2"><AlertOctagon size={14}/> Warn Reporter (False Report)</button></div></div>)}
                               </div>
                           ))}
                       </div>
                   )}
-
                   {currentView === 'applications' && (
                       <div className="max-w-4xl mx-auto space-y-4">
                           {applications.length === 0 ? <p className="text-center text-slate-500 py-10">No pending apps.</p> : applications.map(app => (
-                              <div key={app.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-start md:items-center relative">
-                                  <div className="relative z-10"><div className="flex items-center gap-2 mb-2">{app.type === 'verification' ? <span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-1 rounded font-bold uppercase border border-yellow-500/30 flex items-center gap-1"><BadgeCheck size={12}/> Influencer</span> : <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-1 rounded font-bold uppercase border border-blue-500/30 flex items-center gap-1"><Shield size={12}/> Staff</span>}<span className="text-white font-bold">{app.profiles?.name} <span className="text-slate-500 font-normal">(@{app.profiles?.username})</span></span></div><p className="text-slate-300 text-sm bg-slate-950 p-3 rounded-lg border border-slate-800 mt-2 font-mono">{app.content}</p></div>
-                                  <div className="flex gap-2 shrink-0 z-10"><button onClick={() => handleReviewApplication(app, 'reject')} className="p-2 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded-lg"><XCircle size={20}/></button><button onClick={() => handleReviewApplication(app, 'approve')} className="p-2 bg-slate-800 hover:bg-green-500/20 text-green-400 rounded-lg"><CheckCircle size={20}/></button></div>
-                              </div>
+                              <div key={app.id} className="bg-slate-900 border border-slate-800 p-5 rounded-2xl flex flex-col md:flex-row gap-4 justify-between items-start md:items-center relative"><div className="relative z-10"><div className="flex items-center gap-2 mb-2">{app.type === 'verification' ? <span className="bg-yellow-500/20 text-yellow-400 text-xs px-2 py-1 rounded font-bold uppercase border border-yellow-500/30 flex items-center gap-1"><BadgeCheck size={12}/> Influencer</span> : <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-1 rounded font-bold uppercase border border-blue-500/30 flex items-center gap-1"><Shield size={12}/> Staff</span>}<span className="text-white font-bold">{app.profiles?.name} <span className="text-slate-500 font-normal">(@{app.profiles?.username})</span></span></div><p className="text-slate-300 text-sm bg-slate-950 p-3 rounded-lg border border-slate-800 mt-2 font-mono">{app.content}</p></div><div className="flex gap-2 shrink-0 z-10"><button onClick={() => handleReviewApplication(app, 'reject')} className="p-2 bg-slate-800 hover:bg-red-500/20 text-red-400 rounded-lg"><XCircle size={20}/></button><button onClick={() => handleReviewApplication(app, 'approve')} className="p-2 bg-slate-800 hover:bg-green-500/20 text-green-400 rounded-lg"><CheckCircle size={20}/></button></div></div>
                           ))}
                       </div>
                   )}
-
                   {currentView === 'support' && (
                       <div className="absolute inset-4 md:inset-8 flex gap-4">
-                          <div className="w-1/3 min-w-[250px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col">
-                              <div className="p-4 border-b border-slate-800 bg-slate-950/50"><h3 className="font-bold text-slate-300 text-sm uppercase">Open Calls ({tickets.length})</h3></div>
-                              <div className="flex-1 overflow-y-auto p-2 space-y-1">{tickets.map(t => (<button key={t.id} onClick={() => setActiveTicket(t)} className={`w-full text-left p-3 rounded-xl transition-colors ${activeTicket?.id === t.id ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><p className="font-bold text-sm text-white">{t.user_name || 'User'}</p><p className="text-xs text-slate-400 mt-1"><Clock size={10} className="inline mr-1"/>{new Date(t.created_at).toLocaleTimeString()}</p></button>))}</div>
-                          </div>
-                          <div className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">
-                              {activeTicket ? (
-                                  <><div className="p-4 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center"><p className="font-bold text-white">{activeTicket.user_name}</p><button onClick={handleCloseTicket} className="text-xs bg-slate-800 text-red-400 px-3 py-1.5 rounded-lg font-bold">Close Call</button></div><div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/30">{messages.map(m => (<div key={m.id} className={`flex flex-col max-w-[80%] ${m.profiles?.global_role && m.profiles.global_role !== 'civilian' ? 'ml-auto items-end' : 'items-start'}`}><span className="text-[10px] text-slate-500 mb-1 ml-1">{m.profiles?.name}</span><div className={`p-3 rounded-2xl text-sm ${m.profiles?.global_role && m.profiles.global_role !== 'civilian' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}`}>{m.content}</div></div>))}<div ref={messagesEndRef} /></div><div className="p-4 bg-slate-950 border-t border-slate-800 flex gap-2"><input value={replyText} onChange={e => setReplyText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendReply()} placeholder="Type dispatch response..." className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none" /><button onClick={handleSendReply} className="bg-blue-600 text-white p-2.5 rounded-xl"><Send size={18}/></button></div></>
-                              ) : (<div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500"><MessageSquare size={48} className="mb-4 opacity-20" /><p>Select a call.</p></div>)}
-                          </div>
+                          <div className="w-1/3 min-w-[250px] bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden flex flex-col"><div className="p-4 border-b border-slate-800 bg-slate-950/50"><h3 className="font-bold text-slate-300 text-sm uppercase">Open Calls ({tickets.length})</h3></div><div className="flex-1 overflow-y-auto p-2 space-y-1">{tickets.map(t => (<button key={t.id} onClick={() => setActiveTicket(t)} className={`w-full text-left p-3 rounded-xl transition-colors ${activeTicket?.id === t.id ? 'bg-blue-600' : 'hover:bg-slate-800'}`}><p className="font-bold text-sm text-white">{t.user_name || 'User'}</p><p className="text-xs text-slate-400 mt-1"><Clock size={10} className="inline mr-1"/>{new Date(t.created_at).toLocaleTimeString()}</p></button>))}</div></div>
+                          <div className="flex-1 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col overflow-hidden">{activeTicket ? (<><div className="p-4 border-b border-slate-800 bg-slate-950/50 flex justify-between items-center"><p className="font-bold text-white">{activeTicket.user_name}</p><button onClick={handleCloseTicket} className="text-xs bg-slate-800 text-red-400 px-3 py-1.5 rounded-lg font-bold">Close Call</button></div><div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-950/30">{messages.map(m => (<div key={m.id} className={`flex flex-col max-w-[80%] ${m.profiles?.global_role && m.profiles.global_role !== 'civilian' ? 'ml-auto items-end' : 'items-start'}`}><span className="text-[10px] text-slate-500 mb-1 ml-1">{m.profiles?.name}</span><div className={`p-3 rounded-2xl text-sm ${m.profiles?.global_role && m.profiles.global_role !== 'civilian' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-200'}`}>{m.content}</div></div>))}<div ref={messagesEndRef} /></div><div className="p-4 bg-slate-950 border-t border-slate-800 flex gap-2"><input value={replyText} onChange={e => setReplyText(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSendReply()} placeholder="Type dispatch response..." className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-white outline-none" /><button onClick={handleSendReply} className="bg-blue-600 text-white p-2.5 rounded-xl"><Send size={18}/></button></div></>) : (<div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500"><MessageSquare size={48} className="mb-4 opacity-20" /><p>Select a call.</p></div>)}</div>
                       </div>
                   )}
-
                   {currentView === 'staff' && isOwner && (
                       <div className="max-w-4xl mx-auto">
                           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl mb-6 flex gap-2"><input value={staffSearchQuery} onChange={e => setStaffSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearchUser()} placeholder="Search username..." className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-white outline-none" /><button onClick={handleSearchUser} className="bg-blue-600 text-white px-6 rounded-xl font-bold">Search</button></div>
@@ -996,18 +853,6 @@ function MainApp() {
   }, [userTicket, supabase]);
 
   useEffect(() => {
-    if (currentView === 'active_calls' && supabase) {
-        const fetchCalls = async () => {
-            const { data } = await supabase.from('support_tickets').select('*').order('created_at', { ascending: false });
-            setSupportList(data || []);
-        };
-        fetchCalls();
-        const channel = supabase.channel('all_tickets').on('postgres_changes', { event: '*', schema: 'public', table: 'support_tickets' }, () => { fetchCalls(); }).subscribe();
-        return () => supabase.removeChannel(channel);
-    }
-  }, [currentView, supabase]);
-
-  useEffect(() => {
       if (feedMode === 'chat' && supabase) {
           const fetchChat = async () => {
               const { data } = await supabase.from('global_chat').select(`*, profiles:user_id ( id, name, username, role, global_role, badges )`).order('created_at', { ascending: false }).limit(50);
@@ -1066,7 +911,7 @@ function MainApp() {
   return (
     <div className="flex h-screen bg-[#0a0a0c] text-slate-100 font-sans overflow-hidden">
       {/* SIDEBAR */}
-      <nav className="hidden md:flex flex-col w-64 bg-[#050507] border-r border-slate-800 p-4">
+      <nav className="hidden md:flex flex-col w-64 bg-[#0a0a0c] border-r border-slate-800 p-4">
           <h1 className="text-xl font-black italic px-4 mb-6">LIBERTY</h1>
           <div className="space-y-1">
              <NavItem icon={<Compass size={20}/>} label="Feed" active={currentView === 'feed'} onClick={() => setCurrentView('feed')} />
