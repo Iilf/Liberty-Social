@@ -9,8 +9,6 @@ import {
   ShieldAlert, Activity, CheckCircle, XCircle, Eye
 } from 'lucide-react';
 
-import { createClient } from '@supabase/supabase-js';
-
 // This pulls the variables that Cloudflare "injected" during the build
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
