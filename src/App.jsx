@@ -850,8 +850,8 @@ function MainApp() {
   // --- RENDER UI ---
   return (
     <div className="flex h-screen bg-[#0a0a0c] text-slate-100 font-sans overflow-hidden text-sm sm:text-base">
-      {/* 1. RAIL */}
-      <div className="flex flex-col items-center w-[72px] bg-[#050507]/95 backdrop-blur-xl border-r border-slate-800/60 py-4 gap-3 shrink-0 z-20">
+      {/* 1. RAIL - HIDDEN ON MOBILE */}
+      <div className="hidden md:flex flex-col items-center w-[72px] bg-[#050507]/95 backdrop-blur-xl border-r border-slate-800/60 py-4 gap-3 shrink-0 z-20">
         <RailItem active={currentView === 'feed'} onClick={goHome}><Compass size={24} /></RailItem>
         <div className="w-8 h-[2px] bg-slate-800 rounded-full mx-auto my-1"></div>
         <div className="flex-1 flex flex-col gap-3 w-full items-center overflow-y-auto scrollbar-hide">
@@ -867,7 +867,7 @@ function MainApp() {
         <div className="mt-auto"><RailItem active={currentView === 'profile'} onClick={goProfile}><User size={20} /></RailItem></div>
       </div>
 
-      {/* 2. SIDEBAR */}
+      {/* 2. SIDEBAR - DESKTOP ONLY */}
       <nav className="hidden lg:flex flex-col w-60 bg-[#0a0a0c]/90 backdrop-blur-xl border-r border-slate-800/60 p-4 space-y-6">
         <div className="flex items-center space-x-2 px-2 pt-1"><h1 className="text-lg font-black italic">LIBERTY<span className="text-blue-500 text-xs block -mt-1 not-italic">Social</span></h1></div>
         <div className="space-y-1">
@@ -876,16 +876,19 @@ function MainApp() {
           <NavItem icon={<User size={18}/>} label="Profile" active={currentView === 'profile'} onClick={goProfile} />
           <NavItem icon={<Inbox size={18}/>} label="Applications" active={currentView === 'applications'} onClick={() => setCurrentView('applications')} />
           <NavItem icon={<Settings size={18}/>} label="Settings" onClick={() => { goProfile(); setActiveModal('settings'); }} />
-          {/* STAFF AREA REMOVED AS REQUESTED */}
         </div>
         <div className="mt-auto pt-4 border-t border-slate-800"><button onClick={() => setIsSupportOpen(!isSupportOpen)} className="flex items-center gap-3 px-3 py-3 w-full rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"><LifeBuoy size={18}/> <span className="text-sm font-semibold">Get Help</span></button></div>
       </nav>
 
-      {/* 3. MAIN */}
+      {/* 3. MAIN CONTENT */}
       <main ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-hide border-r border-slate-800/60 bg-[#0a0a0c] relative">
         {/* Header */}
         <div className="sticky top-0 z-10 bg-[#0a0a0c]/80 backdrop-blur-xl border-b border-slate-800/60 px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-bold truncate"> {currentView === 'feed' ? 'Dispatch Feed' : currentView === 'groups' ? 'Explore Communities' : currentView === 'investigation' ? 'Investigation Unit' : currentView === 'active_calls' ? 'Active Support Calls' : currentView === 'review_apps' ? 'Review Applications' : currentView === 'applications' ? 'Applications' : activeGroup?.name || 'Dashboard'} </h2>
+            <div className="flex items-center gap-2 overflow-hidden">
+                {/* Back button for mobile when in deep view */}
+                {activeGroup && <button onClick={goHome} className="md:hidden p-1 -ml-2 text-slate-400 hover:text-white"><ArrowLeft size={20}/></button>}
+                <h2 className="text-lg font-bold truncate"> {currentView === 'feed' ? 'Dispatch Feed' : currentView === 'groups' ? 'Explore Communities' : currentView === 'investigation' ? 'Investigation Unit' : currentView === 'active_calls' ? 'Active Support Calls' : currentView === 'review_apps' ? 'Review Applications' : currentView === 'applications' ? 'Applications' : activeGroup?.name || 'Dashboard'} </h2>
+            </div>
             <div className="flex space-x-4 items-center relative">
               <button onClick={() => setActiveModal('verify')} className="text-xs bg-yellow-500/10 text-yellow-500 px-3 py-1.5 rounded-full border border-yellow-500/20 hover:bg-yellow-500/20 transition-colors flex items-center gap-1 font-medium"><BadgeCheck size={14} /> Verify</button>
               <div className="relative"><div className="p-2 hover:bg-slate-800 rounded-full transition-colors cursor-pointer" onClick={() => setShowNotifications(!showNotifications)}><Bell className="w-5 h-5 text-slate-400 hover:text-white" /></div>{notifications.filter(n => !n.read).length > 0 && <div className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border border-[#0a0a0c]"></div>}{showNotifications && (<div className="absolute right-0 top-12 w-80 bg-slate-900/95 backdrop-blur-xl border border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden ring-1 ring-white/10"><div className="p-3 border-b border-slate-800/50 font-bold text-xs uppercase tracking-wider text-slate-500">Notifications</div><div className="max-h-80 overflow-y-auto">{notifications.length === 0 ? <div className="p-6 text-center text-xs text-slate-500">No new alerts.</div> : notifications.map(n => (<div key={n.id} onClick={() => handleNotificationClick(n)} className={`p-4 border-b border-slate-800/30 hover:bg-slate-800/50 cursor-pointer transition-colors ${!n.read ? 'bg-blue-500/5' : ''}`}><p className="text-sm text-slate-300"><span className="font-bold text-white">{n.profiles?.name}</span> {n.content}</p><span className="text-[10px] text-slate-500 mt-1 block">{new Date(n.created_at).toLocaleTimeString()}</span></div>))}</div></div>)}</div>
@@ -894,7 +897,7 @@ function MainApp() {
 
         {/* --- VIEWS --- */}
         {currentView === 'profile' && currentUser && (
-             <div className="pb-10">
+             <div className="pb-24">
                 <div className="h-48 bg-gradient-to-r from-blue-900 to-slate-900 relative overflow-hidden"><div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20"></div></div>
                 <div className="px-6 sm:px-10">
                    <div className="relative -mt-16 mb-6 flex items-end gap-4"><div className="w-32 h-32 rounded-3xl bg-slate-900 border-4 border-[#0a0a0c] p-1 shadow-2xl"><div className="w-full h-full bg-slate-800 rounded-2xl flex items-center justify-center"><User size={48} className="text-slate-500" /></div></div><div className="mb-2"><h1 className="text-3xl font-black italic tracking-tight text-white flex items-center gap-2">{currentUser.name}{currentUser.global_role === 'owner' && <Crown size={24} className="text-yellow-500" fill="currentColor" />}</h1><p className="text-slate-400">@{currentUser.username}</p>
@@ -912,7 +915,7 @@ function MainApp() {
         )}
 
         {(currentView === 'feed') && (
-            <div className="pb-10 max-w-3xl mx-auto">
+            <div className="pb-24 max-w-3xl mx-auto">
                 <div className="flex gap-2 px-4 pt-4 mb-4">
                     <button onClick={() => setFeedMode('posts')} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${feedMode === 'posts' ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400'}`}>Posts</button>
                     <button onClick={() => setFeedMode('chat')} className={`flex-1 py-2 rounded-xl text-sm font-bold transition-all ${feedMode === 'chat' ? 'bg-blue-600 text-white' : 'bg-slate-900 text-slate-400'}`}>Live Chat</button>
@@ -932,7 +935,7 @@ function MainApp() {
                     <div className="space-y-4 px-4 pb-20">{posts.map(post => (<PostCard key={post.id} post={post} currentUser={currentUser} groupRole={currentGroupRole} onReport={() => setReportTarget({ type: 'post', id: post.id })} onDelete={() => handleDeletePost(post.id)} onLike={() => handleLikePost(post.id, post.like_count)} onBan={() => handleBanUser(post.uid)} onViewComments={() => setViewingCommentsPost(post)} onViewProfile={() => handleViewProfile(post.profiles)} />))}</div>
                    </>
                 ) : (
-                    <div className="flex flex-col h-[calc(100vh-140px)] mx-4 bg-slate-900/50 border border-slate-800/60 rounded-2xl overflow-hidden">
+                    <div className="flex flex-col h-[calc(100vh-200px)] md:h-[calc(100vh-140px)] mx-4 bg-slate-900/50 border border-slate-800/60 rounded-2xl overflow-hidden">
                         <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={chatScrollRef}>
                             {globalChatMessages.map(msg => {
                                 const isMe = msg.user_id === authUser?.id;
@@ -969,7 +972,7 @@ function MainApp() {
 
         {/* APPLICATIONS VIEW */}
         {currentView === 'applications' && (
-            <div className="p-6 max-w-5xl mx-auto space-y-6">
+            <div className="p-6 pb-24 max-w-5xl mx-auto space-y-6">
                 <h2 className="text-2xl font-bold text-white mb-6">Open Applications</h2>
                 <div className="grid md:grid-cols-2 gap-6">
                     <div className="bg-gradient-to-br from-yellow-900/20 to-orange-900/20 border border-yellow-500/30 rounded-2xl p-6 flex flex-col justify-between h-full relative overflow-hidden group"><div className="absolute -right-10 -top-10 bg-yellow-500/10 w-40 h-40 rounded-full blur-3xl group-hover:bg-yellow-500/20 transition-all"></div><div><div className="w-12 h-12 bg-yellow-500/20 rounded-xl flex items-center justify-center border border-yellow-500/40 text-yellow-500 mb-4"><Star size={24} fill="currentColor"/></div><h3 className="text-xl font-bold text-white">Influencer Verification</h3><p className="text-sm text-slate-400 mt-2 leading-relaxed">Get the <span className="text-yellow-500 font-bold"><Star size={10} className="inline"/> Verified Badge</span> next to your name. Requirements: 1000+ followers on any major social platform.</p></div><button onClick={() => setActiveModal('verify')} className="mt-6 w-full bg-yellow-500 hover:bg-yellow-400 text-black py-3 rounded-xl font-bold shadow-lg shadow-yellow-900/20 transition-all">Apply for Verification</button></div>
@@ -978,15 +981,15 @@ function MainApp() {
             </div>
         )}
 
-        {/* Removed 'review_apps', 'investigation', 'active_calls' render blocks to fulfill request */}
-
         {(currentView === 'single_group' || currentView === 'groups') && (
-            <div className="pb-10 max-w-3xl mx-auto">
+            <div className="pb-24 max-w-3xl mx-auto">
                 {activeGroup && currentView === 'single_group' && (
                     <div className="mb-6 rounded-b-3xl overflow-hidden bg-slate-900 border-b border-x border-slate-800 shadow-xl mx-4 mt-0">
                         <div className="h-40 bg-slate-950 relative">
                              {activeGroup.banner ? (<img src={activeGroup.banner} className="w-full h-full object-cover" />) : (<div className="absolute inset-0 bg-gradient-to-r from-blue-900 to-indigo-900"><div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-overlay"></div></div>)}
-                             <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md p-2 flex justify-center gap-2">{GROUP_CHANNELS.map(c => (<button key={c.id} onClick={() => setActiveChannel(c.id)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border ${activeChannel === c.id ? 'bg-white text-black border-white shadow-lg scale-105' : 'bg-black/30 text-slate-300 border-transparent hover:bg-black/50'}`}><div className="flex items-center gap-1.5">{c.icon && React.cloneElement(c.icon, { size: 12 })}{c.label}</div></button>))}</div>
+                             <div className="absolute bottom-0 left-0 right-0 bg-black/40 backdrop-blur-md p-2 flex justify-center gap-2 overflow-x-auto scrollbar-hide">
+                                 {GROUP_CHANNELS.map(c => (<button key={c.id} onClick={() => setActiveChannel(c.id)} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all border shrink-0 ${activeChannel === c.id ? 'bg-white text-black border-white shadow-lg scale-105' : 'bg-black/30 text-slate-300 border-transparent hover:bg-black/50'}`}><div className="flex items-center gap-1.5">{c.icon && React.cloneElement(c.icon, { size: 12 })}{c.label}</div></button>))}
+                             </div>
                         </div>
                         <div className="px-6 py-4 flex items-center justify-between">
                             <div className="flex items-center gap-4 -mt-12 relative z-10">
@@ -1005,7 +1008,7 @@ function MainApp() {
 
                 {currentView === 'groups' && (
                   <div className="p-6">
-                     <div className="flex items-center gap-4 mb-6">
+                     <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-3.5 w-4 h-4 text-slate-500" />
                             <input 
@@ -1079,7 +1082,7 @@ function MainApp() {
             </div>
         )}
 
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-4">
+        <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-4">
              {isSupportOpen && (
                  <div className="bg-slate-900 border border-slate-800 rounded-2xl w-80 h-96 shadow-2xl flex flex-col overflow-hidden animate-in slide-in-from-bottom duration-300">
                      <div className="bg-blue-600 p-4 flex justify-between items-center text-white"><h4 className="font-bold flex items-center gap-2"><LifeBuoy size={18}/> Support Chat</h4><button onClick={() => setIsSupportOpen(false)}><X size={18}/></button></div>
@@ -1090,6 +1093,28 @@ function MainApp() {
                      {userTicket && (<div className="p-3 bg-slate-900 border-t border-slate-800 flex gap-2"><input value={supportInput} onChange={e => setSupportInput(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-2 text-sm text-white outline-none" placeholder="Type here..." onKeyDown={e => e.key === 'Enter' && handleSendSupportMessage()} /><button onClick={handleSendSupportMessage} className="bg-blue-600 text-white p-2 rounded-lg"><Send size={16}/></button></div>)}
                  </div>
              )}
+        </div>
+        
+        {/* 4. MOBILE BOTTOM NAV */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050507]/90 backdrop-blur-xl border-t border-slate-800/60 pb-safe z-40">
+          <div className="flex justify-around items-center h-16 px-2">
+            <button onClick={goHome} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${currentView === 'feed' ? 'text-blue-500' : 'text-slate-500'}`}>
+              <Navigation size={24} />
+              <span className="text-[10px] font-bold">Dispatch</span>
+            </button>
+            <button onClick={() => setCurrentView('groups')} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${currentView === 'groups' ? 'text-blue-500' : 'text-slate-500'}`}>
+              <Users size={24} />
+              <span className="text-[10px] font-bold">Units</span>
+            </button>
+            <button onClick={() => setCurrentView('applications')} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${currentView === 'applications' ? 'text-blue-500' : 'text-slate-500'}`}>
+              <Inbox size={24} />
+              <span className="text-[10px] font-bold">Apps</span>
+            </button>
+             <button onClick={goProfile} className={`flex flex-col items-center justify-center w-full h-full gap-1 ${currentView === 'profile' ? 'text-blue-500' : 'text-slate-500'}`}>
+              <User size={24} />
+              <span className="text-[10px] font-bold">ID Card</span>
+            </button>
+          </div>
         </div>
 
         {/* --- MODALS MOVED TO ROOT LEVEL --- */}
