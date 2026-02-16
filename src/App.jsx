@@ -869,7 +869,7 @@ function MainApp() {
 
       {/* 2. SIDEBAR - DESKTOP ONLY */}
       <nav className="hidden lg:flex flex-col w-60 bg-[#0a0a0c]/90 backdrop-blur-xl border-r border-slate-800/60 p-4 space-y-6">
-        <div className="flex items-center space-x-2 px-2 pt-1"><h1 className="text-lg font-black italic">LIBERTY<span className="text-blue-500 text-xs block -mt-1 not-italic">Social</span></h1></div>
+        <div className="flex items-center space-x-2 px-2 pt-1"><h1 className="text-lg font-black italic">LIBERTY<span className="text-blue-500 text-xs block -mt-1 not-italic">Social BETA</span></h1></div>
         <div className="space-y-1">
           <NavItem icon={<Navigation size={18}/>} label="The Dispatch" active={currentView === 'feed'} onClick={goHome} />
           <NavItem icon={<Users size={18}/>} label="Communities" active={currentView === 'groups'} onClick={() => setCurrentView('groups')} />
