@@ -814,7 +814,7 @@ function MainApp() {
         <div className="w-full max-w-md bg-slate-900/60 border border-slate-800 rounded-3xl p-8 shadow-2xl backdrop-blur-xl relative z-10 animate-in fade-in zoom-in-95 duration-500">
           <div className="flex flex-col items-center mb-8">
             <div className="bg-gradient-to-br from-blue-600 to-indigo-700 p-5 rounded-2xl shadow-lg shadow-blue-900/40 mb-5 ring-1 ring-white/20"><Shield className="w-12 h-12 text-white" /></div>
-            <h1 className="text-4xl font-black italic mb-2 tracking-tighter">LIBERTY<span className="text-blue-500 not-italic">Social</span></h1>
+            <h1 className="text-4xl font-black italic mb-2 tracking-tighter">LIBERTY<span className="text-blue-500 not-italic">Social BETA</span></h1>
             <p className="text-slate-400 text-sm font-medium tracking-wide uppercase text-center">Secure Community Frequency</p>
           </div>
           <form onSubmit={handleAuthSubmit} className="space-y-4">
